@@ -266,7 +266,7 @@ async function downloadAll() {
   downloading.value = true
   try {
     const res = await axios.post(`/api/series/${selectedSeries.value}/download`)
-    message.success(`已创建 ${res.data.tasks_created} 个下载任务`)
+    message.success(res.data.message || `已创建 ${res.data.tasks_created} 个下载任务`)
     await openSeries(selectedSeries.value)
   } catch (e) {
     message.error(e.response?.data?.detail || '下载失败')

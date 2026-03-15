@@ -261,8 +261,17 @@ async def delete_episode(series_id: int, episode_id: int, db: AsyncSession = Dep
 
 @router.post("/{series_id}/download")
 async def download_series(series_id: int, db: AsyncSession = Depends(get_db)):
-    """批量下载整个剧集"""
+    """
+    批量下载整个剧集
+    - 已下载过的视频：直接移动文件到剧集目录
+    - 未下载过的视频：创建下载任务
+    """
+    import os
+    import shutil
     import redis.asyncio as aioredis
+    from models import DownloadHistory
+    from services.file_organizer import build_tvshow_path, ensure_dirs, sanitize_filename
+    from services.nfo_generator import generate_tvshow_nfo, generate_episode_nfo, save_nfo
 
     result = await db.execute(
         select(ManualSeries).options(selectinload(ManualSeries.episodes)).where(ManualSeries.id == series_id)
@@ -277,26 +286,114 @@ async def download_series(series_id: int, db: AsyncSession = Depends(get_db)):
 
     r = aioredis.from_url(settings.redis_dsn, decode_responses=True)
     created = 0
+    moved = 0
+    category = s.category or settings.dir_series
 
     try:
         for ep in pending_eps:
-            task = DownloadTask(
-                platform=s.platform,
-                video_url=ep.video_url,
-                title=ep.title,
-                status=TaskStatus.PENDING,
+            # 1. 检查是否已经下载过（通过 video_url 匹配 DownloadHistory）
+            history_result = await db.execute(
+                select(DownloadHistory).where(DownloadHistory.video_url == ep.video_url)
             )
-            db.add(task)
-            await db.flush()
+            existing = history_result.scalar()
 
-            ep.download_task_id = task.id
-            ep.status = TaskStatus.PENDING
-            await r.rpush("download_queue", str(task.id))
-            created += 1
+            if existing and existing.file_path and os.path.exists(existing.file_path):
+                # 已下载 → 移动文件到剧集目录
+                ext = os.path.splitext(existing.file_path)[1] or ".mp4"
+                year = ""
+                paths = build_tvshow_path(
+                    settings.download_dir, category, s.title, year,
+                    season=s.season, episode=ep.episode_number,
+                    episode_title=ep.title,
+                    codec=existing.codec or "",
+                    ext=ext,
+                )
+                ensure_dirs(paths)
 
-        s.status = SeriesStatus.DOWNLOADING
+                # 移动视频文件
+                shutil.move(existing.file_path, paths["video"])
+
+                # 移动同目录的相关文件（nfo, 字幕, 缩略图等）
+                src_dir = os.path.dirname(existing.file_path)
+                src_base = os.path.splitext(os.path.basename(existing.file_path))[0]
+                for f in os.listdir(src_dir):
+                    if f.startswith(src_base) and f != os.path.basename(existing.file_path):
+                        shutil.move(os.path.join(src_dir, f), os.path.join(paths["season_dir"], f))
+
+                # 移动封面
+                for poster_name in ["poster.jpg", "poster.webp", "poster.png"]:
+                    poster_src = os.path.join(src_dir, poster_name)
+                    if os.path.exists(poster_src):
+                        shutil.move(poster_src, os.path.join(paths["season_dir"], poster_name))
+
+                # 清理空的源目录
+                try:
+                    if not os.listdir(src_dir):
+                        os.rmdir(src_dir)
+                except Exception:
+                    pass
+
+                # 生成 episode.nfo（带角色信息）
+                ep_nfo = generate_episode_nfo(
+                    title=ep.title,
+                    season=s.season,
+                    episode=ep.episode_number,
+                    plot="",
+                    director=existing.channel_name or "",
+                    video_url=ep.video_url,
+                    video_id=existing.video_id or "",
+                    platform=s.platform.value,
+                    thumb_filename=os.path.basename(paths["thumb"]) if os.path.exists(paths.get("thumb", "")) else "",
+                    duration_seconds=ep.duration,
+                )
+                save_nfo(ep_nfo, paths["nfo"])
+
+                # 更新历史记录的文件路径
+                existing.file_path = paths["video"]
+                ep.status = TaskStatus.COMPLETED
+                moved += 1
+            else:
+                # 未下载 → 创建下载任务（标记为剧集集数）
+                task = DownloadTask(
+                    platform=s.platform,
+                    video_url=ep.video_url,
+                    title=ep.title,
+                    status=TaskStatus.PENDING,
+                )
+                db.add(task)
+                await db.flush()
+
+                ep.download_task_id = task.id
+                ep.status = TaskStatus.PENDING
+                await r.rpush("download_queue", str(task.id))
+                created += 1
+
+        # 生成 tvshow.nfo（剧集根目录）
+        year = ""
+        tvshow_paths = build_tvshow_path(
+            settings.download_dir, category, s.title, year,
+            season=s.season, episode=1,
+        )
+        ensure_dirs(tvshow_paths)
+        tvshow_nfo = generate_tvshow_nfo(
+            title=s.title,
+            plot=s.description,
+            studio=s.platform.value.capitalize(),
+            platform=s.platform.value,
+            tags=[category, s.platform.value.capitalize()],
+        )
+        save_nfo(tvshow_nfo, tvshow_paths["tvshow_nfo"])
+
+        s.status = SeriesStatus.DOWNLOADING if created > 0 else (
+            SeriesStatus.COMPLETED if moved == len(pending_eps) else SeriesStatus.PARTIAL
+        )
         await db.commit()
     finally:
         await r.close()
 
-    return {"success": True, "tasks_created": created}
+    return {
+        "success": True,
+        "tasks_created": created,
+        "files_moved": moved,
+        "message": f"移动 {moved} 个已下载文件，新建 {created} 个下载任务",
+    }

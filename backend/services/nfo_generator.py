@@ -149,6 +149,11 @@ def generate_episode_nfo(
         SubElement(ep, "aired").text = aired
     if director:
         SubElement(ep, "director").text = director
+        # UP主同时标记为演员（创作者角色）
+        actor = SubElement(ep, "actor")
+        SubElement(actor, "name").text = director
+        SubElement(actor, "role").text = "创作者"
+        SubElement(actor, "type").text = "Actor"
     if video_url:
         SubElement(ep, "website").text = video_url
     if video_id and platform:
