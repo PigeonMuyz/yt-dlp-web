@@ -36,6 +36,8 @@ services:
       # - YTDLP_EMBY_API_KEY=你的Emby-API-KEY
       # 代理（如果需要访问YouTube）
       # - YTDLP_PROXY=http://代理地址:端口
+    labels:
+      - "com.centurylinklabs.watchtower.scope=ytdlp"
     restart: unless-stopped
     depends_on:
       postgres:
@@ -62,6 +64,21 @@ services:
   redis:
     image: redis:7-alpine
     container_name: ytdlp-redis
+    restart: unless-stopped
+
+  # 自动更新（可选，推荐启用）
+  # Watchtower 会每 6 小时检查镜像更新，自动拉取新版本并重启容器
+  watchtower:
+    image: containrrr/watchtower
+    container_name: ytdlp-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=21600  # 6 小时检查一次
+      - WATCHTOWER_SCOPE=ytdlp
+    labels:
+      - "com.centurylinklabs.watchtower.scope=ytdlp"
     restart: unless-stopped
 
 volumes:
