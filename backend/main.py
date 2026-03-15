@@ -154,11 +154,24 @@ app.include_router(subscription.router, prefix="/api/subscription", tags=["订�
 app.include_router(task.router, prefix="/api/task", tags=["任务"])
 
 
-# ==================== 静态文件 ====================
+# ==================== 静态文件 + SPA Fallback ====================
 
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.exists(frontend_dist):
-    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+    from fastapi.responses import FileResponse
+
+    # 静态资源（js/css/images）
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+
+    # SPA fallback：所有非 /api 路径返回 index.html
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # 尝试直接提供静态文件（如 favicon.ico）
+        file_path = os.path.join(frontend_dist, full_path)
+        if full_path and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        # 否则返回 index.html，由 Vue Router 处理
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
 
 
 if __name__ == "__main__":
