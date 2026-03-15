@@ -4,7 +4,10 @@
 避免阻塞 asyncio 事件循环导致 Web UI 无响应。
 """
 import asyncio
+import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
 
@@ -152,16 +155,46 @@ async def process_download_queue():
                     sr.close()
 
                 # 下载 —— 在线程池中执行！
-                dl_info = await asyncio.to_thread(
-                    download_video,
-                    task.video_url,
-                    output_path=paths["video"],
-                    format_string=format_str,
-                    subtitle_langs="zh-Hans,en,ja",
-                    proxy=settings.proxy,
-                    cookies_file=cookies,
-                    progress_callback=on_progress,
-                )
+                try:
+                    dl_info = await asyncio.to_thread(
+                        download_video,
+                        task.video_url,
+                        output_path=paths["video"],
+                        format_string=format_str,
+                        subtitle_langs="zh-Hans,en,ja",
+                        proxy=settings.proxy,
+                        cookies_file=cookies,
+                        progress_callback=on_progress,
+                    )
+                except Exception as fmt_err:
+                    err_msg = str(fmt_err)
+                    if "Requested format is not available" in err_msg and format_str != "bestvideo+bestaudio/best":
+                        # 指定编码不可用 → 自动回退到最佳格式
+                        logger.warning(f"格式 {format_str} 不可用，回退到 best: {task.title}")
+                        fallback_fmt = "bestvideo+bestaudio/best"
+                        dl_info = await asyncio.to_thread(
+                            download_video,
+                            task.video_url,
+                            output_path=paths["video"],
+                            format_string=fallback_fmt,
+                            subtitle_langs="zh-Hans,en,ja",
+                            proxy=settings.proxy,
+                            cookies_file=cookies,
+                            progress_callback=on_progress,
+                        )
+                        # 更新实际编码信息
+                        if dl_info:
+                            actual_vcodec = dl_info.get("vcodec", "")
+                            if "av01" in actual_vcodec or "av1" in actual_vcodec:
+                                task.codec = "av1"
+                            elif "vp9" in actual_vcodec or "vp09" in actual_vcodec:
+                                task.codec = "vp9"
+                            elif "avc" in actual_vcodec or "h264" in actual_vcodec:
+                                task.codec = "h264"
+                            elif "hev" in actual_vcodec or "hevc" in actual_vcodec:
+                                task.codec = "hevc"
+                    else:
+                        raise  # 非格式错误，继续抛出
 
                 # 字幕转换 —— 在线程池中执行
                 await asyncio.to_thread(convert_all_subtitles, paths["subtitle_dir"])
