@@ -73,6 +73,9 @@
         <n-icon size="16" style="margin-right: 6px; vertical-align: -2px;"><TvOutline /></n-icon>
         Emby 集成
       </div>
+      <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+        配置后，每次下载完成会自动刷新 Emby 媒体库，新视频将立即出现在你的 Emby 中。视频文件按 Emby 规范存储（NFO + poster 封面）。
+      </p>
       <div class="form-row">
         <n-form-item label="Emby 地址">
           <n-input v-model:value="embyUrl" placeholder="http://192.168.1.100:8096" />
@@ -127,6 +130,7 @@ const embyApiKey = ref('')
 const envProxy = ref('')
 
 const resolutionOptions = [
+  { label: '最佳画质', value: 'best' },
   { label: '2160p (4K)', value: '2160p' },
   { label: '1440p (2K)', value: '1440p' },
   { label: '1080p (Full HD)', value: '1080p' },

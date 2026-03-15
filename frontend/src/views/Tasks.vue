@@ -1,92 +1,115 @@
 <template>
   <div>
     <div class="page-header">
-      <h1 class="page-title">任务队列</h1>
-      <p class="page-subtitle">查看和管理下载任务</p>
+      <h1 class="page-title">任务列表</h1>
+      <p class="page-subtitle">查看和管理所有下载任务</p>
     </div>
 
-    <!-- 状态筛选 -->
+    <!-- Tab 切换：进行中 / 历史记录 -->
     <div class="card">
-      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap: wrap;">
-        <n-button v-for="f in filters" :key="f.value" :type="filter===f.value?'primary':'default'" size="small" @click="filter=f.value;loadTasks()">
-          <template #icon><n-icon :component="f.icon" size="14" /></template>
-          {{ f.label }}
-        </n-button>
-      </div>
-
-      <!-- 任务列表 -->
-      <div v-if="tasks.length">
-        <div v-for="t in tasks" :key="t.id" class="task-item">
-          <!-- 缩略图 -->
-          <div class="task-thumb">
-            <img v-if="t.thumbnail" :src="t.thumbnail" />
-            <div v-else class="task-thumb-placeholder">
-              <n-icon size="20"><VideocamOutline /></n-icon>
-            </div>
+      <n-tabs v-model:value="activeTab" type="line" @update:value="onTabChange">
+        <n-tab-pane name="tasks" tab="进行中">
+          <!-- 状态筛选 -->
+          <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+            <n-button v-for="f in taskFilters" :key="f.value" :type="filter===f.value?'primary':'default'" size="small" @click="filter=f.value;loadTasks()">
+              <template #icon><n-icon :component="f.icon" size="14" /></template>
+              {{ f.label }}
+            </n-button>
           </div>
 
-          <!-- 信息 -->
-          <div class="task-info">
-            <div class="task-title">{{ t.title || '解析中...' }}</div>
-            <div class="task-meta">
-              <span v-if="t.channel_name">{{ t.channel_name }} ·</span>
-              <span>{{ t.platform === 'bilibili' ? 'B站' : 'YouTube' }}</span>
-              <span v-if="t.resolution"> · {{ t.resolution }}</span>
-              <span v-if="t.codec"> · {{ t.codec.toUpperCase() }}</span>
-              <span v-if="t.file_size"> · {{ formatSize(t.file_size) }}</span>
-              <span v-if="t.duration"> · {{ formatDuration(t.duration) }}</span>
-            </div>
-            <!-- 进度条 -->
-            <div v-if="t.status === 'downloading'" style="margin-top: 6px;">
-              <n-progress type="line" :percentage="t.progress" :height="6" :show-indicator="false" status="info" />
-              <div class="task-meta" style="margin-top: 4px;">
-                {{ t.progress }}%
-                <span v-if="t.speed"> · {{ t.speed }}</span>
-                <span v-if="t.eta"> · 剩余 {{ t.eta }}</span>
+          <div v-if="tasks.length">
+            <div v-for="t in tasks" :key="t.id" class="task-item">
+              <div class="task-thumb">
+                <img v-if="t.thumbnail" :src="t.thumbnail" referrerpolicy="no-referrer" />
+                <div v-else class="task-thumb-placeholder">
+                  <n-icon size="20"><VideocamOutline /></n-icon>
+                </div>
+              </div>
+              <div class="task-info">
+                <div class="task-title">{{ t.title || '解析中...' }}</div>
+                <div class="task-meta">
+                  <span v-if="t.channel_name">{{ t.channel_name }} ·</span>
+                  <span>{{ t.platform === 'bilibili' ? 'B站' : 'YouTube' }}</span>
+                  <span v-if="t.resolution"> · {{ t.resolution }}</span>
+                  <span v-if="t.codec"> · {{ t.codec.toUpperCase() }}</span>
+                  <span v-if="t.file_size"> · {{ formatSize(t.file_size) }}</span>
+                  <span v-if="t.duration"> · {{ formatDuration(t.duration) }}</span>
+                </div>
+                <div v-if="t.status === 'downloading'" style="margin-top:6px;">
+                  <n-progress type="line" :percentage="t.progress" :height="6" :show-indicator="false" status="info" />
+                  <div class="task-meta" style="margin-top:4px;">
+                    {{ t.progress }}%
+                    <span v-if="t.speed"> · {{ t.speed }}</span>
+                    <span v-if="t.eta"> · 剩余 {{ t.eta }}</span>
+                  </div>
+                </div>
+                <div v-if="t.status === 'failed' && t.error_msg" class="task-error">
+                  <n-icon size="12"><AlertCircleOutline /></n-icon>
+                  {{ t.error_msg.substring(0, 150) }}
+                </div>
+              </div>
+              <div class="task-actions">
+                <n-tag :type="statusTypeMap[t.status]" size="small" round>
+                  {{ statusLabels[t.status] || t.status }}
+                </n-tag>
+                <div style="display:flex;gap:4px;margin-top:8px;">
+                  <n-button v-if="t.status === 'failed'" size="tiny" tertiary type="primary" @click="retry(t.id)">
+                    <template #icon><n-icon size="14"><RefreshOutline /></n-icon></template>
+                  </n-button>
+                  <n-button v-if="t.status === 'pending'" size="tiny" tertiary type="warning" @click="cancel(t.id)">
+                    <template #icon><n-icon size="14"><CloseOutline /></n-icon></template>
+                  </n-button>
+                  <n-button size="tiny" tertiary type="error" @click="remove(t.id)">
+                    <template #icon><n-icon size="14"><TrashOutline /></n-icon></template>
+                  </n-button>
+                </div>
               </div>
             </div>
-            <!-- 错误信息 -->
-            <div v-if="t.status === 'failed' && t.error_msg" class="task-error">
-              <n-icon size="12"><AlertCircleOutline /></n-icon>
-              {{ t.error_msg.substring(0, 120) }}
+          </div>
+          <div v-else class="empty-state">
+            <n-icon size="48" color="var(--text-muted)" style="opacity:0.4;"><ListOutline /></n-icon>
+            <p style="margin-top:12px;">暂无任务</p>
+          </div>
+        </n-tab-pane>
+
+        <n-tab-pane name="history" tab="下载历史">
+          <div v-if="history.length">
+            <div v-for="h in history" :key="h.id" class="task-item">
+              <div class="task-thumb">
+                <div class="task-thumb-placeholder">
+                  <n-icon size="20"><CheckmarkCircleOutline /></n-icon>
+                </div>
+              </div>
+              <div class="task-info">
+                <div class="task-title">{{ h.title }}</div>
+                <div class="task-meta">
+                  <span v-if="h.channel_name">{{ h.channel_name }} ·</span>
+                  <span>{{ h.platform === 'bilibili' ? 'B站' : 'YouTube' }}</span>
+                  <span v-if="h.resolution"> · {{ h.resolution }}</span>
+                  <span v-if="h.codec"> · {{ h.codec.toUpperCase() }}</span>
+                  <span v-if="h.file_size"> · {{ formatSize(h.file_size) }}</span>
+                </div>
+                <div class="task-meta" style="margin-top:2px;">
+                  <span v-if="h.file_path" style="font-size:11px; color:var(--text-muted);">{{ h.file_path }}</span>
+                </div>
+              </div>
+              <div class="task-actions">
+                <span style="font-size:12px; color:var(--text-muted);">{{ formatDate(h.downloaded_at) }}</span>
+              </div>
             </div>
           </div>
-
-          <!-- 状态 + 操作 -->
-          <div class="task-actions">
-            <n-tag :type="statusTypeMap[t.status]" size="small" round>
-              {{ statusLabels[t.status] || t.status }}
-            </n-tag>
-            <div style="display: flex; gap: 4px; margin-top: 8px;">
-              <n-button v-if="t.status === 'failed'" size="tiny" tertiary type="primary" @click="retry(t.id)">
-                <template #icon><n-icon size="14"><RefreshOutline /></n-icon></template>
-              </n-button>
-              <n-button v-if="t.status === 'pending'" size="tiny" tertiary type="warning" @click="cancel(t.id)">
-                <template #icon><n-icon size="14"><CloseOutline /></n-icon></template>
-              </n-button>
-              <n-button size="tiny" tertiary type="error" @click="remove(t.id)">
-                <template #icon><n-icon size="14"><TrashOutline /></n-icon></template>
-              </n-button>
-            </div>
+          <div v-else class="empty-state">
+            <n-icon size="48" color="var(--text-muted)" style="opacity:0.4;"><TimeOutline /></n-icon>
+            <p style="margin-top:12px;">暂无下载历史</p>
           </div>
-        </div>
-      </div>
-
-      <!-- 空状态 -->
-      <div v-else class="empty-state">
-        <n-icon size="48" color="var(--text-muted)" style="opacity: 0.4;"><ListOutline /></n-icon>
-        <p style="margin-top: 12px;">暂无任务</p>
-      </div>
-
-      <div style="text-align: center; margin-top: 16px;" v-if="tasks.length >= 50">
-        <n-button size="small" @click="loadMore">加载更多</n-button>
-      </div>
+        </n-tab-pane>
+      </n-tabs>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useMessage } from 'naive-ui'
 import axios from 'axios'
 import {
@@ -101,12 +124,15 @@ import {
   CheckmarkCircleOutline,
   CloseCircleOutline,
   EllipseOutline,
+  TimeOutline,
 } from '@vicons/ionicons5'
 
 const message = useMessage()
 const tasks = ref([])
+const history = ref([])
 const filter = ref('')
-const offset = ref(0)
+const activeTab = ref('tasks')
+let refreshTimer = null
 
 const statusLabels = {
   pending: '等待中',
@@ -126,7 +152,7 @@ const statusTypeMap = {
   cancelled: 'warning',
 }
 
-const filters = [
+const taskFilters = [
   { label: '全部', value: '', icon: EllipseOutline },
   { label: '下载中', value: 'downloading', icon: CloudDownloadOutline },
   { label: '等待', value: 'pending', icon: HourglassOutline },
@@ -150,29 +176,36 @@ function formatDuration(sec) {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+function formatDate(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+function onTabChange(tab) {
+  if (tab === 'history') loadHistory()
+}
+
 onMounted(async () => {
   await loadTasks()
-  setInterval(async () => {
-    if (filter.value === '' || filter.value === 'downloading') {
-      await loadTasks()
-    }
+  refreshTimer = setInterval(async () => {
+    if (activeTab.value === 'tasks') await loadTasks()
   }, 5000)
 })
 
+onBeforeUnmount(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+})
+
 async function loadTasks() {
-  offset.value = 0
   const params = { limit: 50, offset: 0 }
   if (filter.value) params.status = filter.value
   const res = await axios.get('/api/task/list', { params })
   tasks.value = res.data
 }
 
-async function loadMore() {
-  offset.value += 50
-  const params = { limit: 50, offset: offset.value }
-  if (filter.value) params.status = filter.value
-  const res = await axios.get('/api/task/list', { params })
-  tasks.value.push(...res.data)
+async function loadHistory() {
+  const res = await axios.get('/api/task/history', { params: { limit: 50, offset: 0 } })
+  history.value = res.data
 }
 
 async function retry(id) {

@@ -137,6 +137,25 @@ async def process_download_queue():
                 # 字幕转换 —— 在线程池中执行
                 await asyncio.to_thread(convert_all_subtitles, paths["subtitle_dir"])
 
+                # 整理缩略图：yt-dlp 下载的缩略图可能是 .webp/.jpg/.png，重命名为标准封面
+                thumb_found = False
+                folder = paths.get("folder") or paths.get("season_dir") or os.path.dirname(paths["video"])
+                for f in os.listdir(folder):
+                    if any(f.endswith(ext) for ext in [".webp", ".jpg", ".jpeg", ".png"]):
+                        if "thumb" not in f.lower() and f != os.path.basename(paths.get("thumb", "")):
+                            src = os.path.join(folder, f)
+                            # 检查是否是缩略图（小于 5MB 且是图片）
+                            if os.path.getsize(src) < 5 * 1024 * 1024:
+                                import shutil
+                                # 复制为 poster.jpg（Emby 兼容） + 保留原文件 + 复制为 thumb
+                                poster_path = os.path.join(folder, "poster" + os.path.splitext(f)[1])
+                                if not os.path.exists(poster_path):
+                                    shutil.copy2(src, poster_path)
+                                if paths.get("thumb") and not os.path.exists(paths["thumb"]):
+                                    shutil.copy2(src, paths["thumb"])
+                                thumb_found = True
+                                break
+
                 # 生成 NFO
                 premiered = ""
                 if task.upload_date and len(task.upload_date) == 8:
@@ -166,6 +185,20 @@ async def process_download_queue():
                 task.file_size = actual_size
                 task.completed_at = datetime.utcnow()
                 await db.commit()
+
+                # 触发 Emby 库刷新
+                if settings.emby_url and settings.emby_api_key:
+                    try:
+                        import aiohttp
+                        emby_scan_url = f"{settings.emby_url.rstrip('/')}/Library/Refresh"
+                        async with aiohttp.ClientSession() as session:
+                            await session.post(
+                                emby_scan_url,
+                                params={"api_key": settings.emby_api_key},
+                                timeout=aiohttp.ClientTimeout(total=10),
+                            )
+                    except Exception:
+                        pass  # Emby 刷新失败不影响任务
 
                 # 写下载历史
                 history = DownloadHistory(

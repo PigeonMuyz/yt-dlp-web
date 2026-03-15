@@ -49,7 +49,7 @@ def build_movie_path(
     示例: Emby/YouTube/视频标题 (2024)/视频标题 (2024) - [VP9].webm
     """
     safe_title = sanitize_filename(title)
-    display_name = f"{safe_title} ({year})" if year else safe_title
+    display_name = safe_title
     codec_label = get_codec_label(codec) if codec else ""
 
     folder = os.path.join(base_dir, category, display_name)
@@ -129,7 +129,7 @@ def build_channel_path(
     safe_title = sanitize_filename(title)
     codec_label = get_codec_label(codec) if codec else ""
 
-    display_name = f"{safe_title} ({year})" if year else safe_title
+    display_name = safe_title
 
     if codec_label:
         filename_base = f"{display_name} - [{codec_label}]"

@@ -128,7 +128,12 @@ def build_format_string(codec: str, max_resolution: str = "") -> str:
         elif h == "720":
             height_limit = "[height<=720]"
 
-    return f"bestvideo[vcodec^={vcodec_filter}]{height_limit}+bestaudio/best"
+    # 带 codec 过滤的首选 + 不限 codec 但限分辨率的次选 + 最终兜底
+    primary = f"bestvideo[vcodec^={vcodec_filter}]{height_limit}+bestaudio"
+    secondary = f"bestvideo{height_limit}+bestaudio" if height_limit else ""
+    fallback = "bestvideo+bestaudio/best"
+    parts = [p for p in [primary, secondary, fallback] if p]
+    return "/".join(parts)
 
 
 def download_video(

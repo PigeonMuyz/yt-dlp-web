@@ -23,8 +23,7 @@ const routes = [
   },
   {
     path: '/history',
-    name: 'History',
-    component: () => import('../views/Tasks.vue'),  // 复用 Tasks 视图，后续可拆分
+    redirect: '/tasks',
   },
   {
     path: '/subscriptions',

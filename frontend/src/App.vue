@@ -36,10 +36,7 @@
           <n-icon size="18" class="nav-icon"><CloudDownloadOutline /></n-icon>新建下载
         </router-link>
         <router-link to="/tasks" class="nav-item" :class="{ active: $route.path === '/tasks' }" @click="sidebarOpen = false">
-          <n-icon size="18" class="nav-icon"><ListOutline /></n-icon>任务队列
-        </router-link>
-        <router-link to="/history" class="nav-item" :class="{ active: $route.path === '/history' }" @click="sidebarOpen = false">
-          <n-icon size="18" class="nav-icon"><TimeOutline /></n-icon>下载历史
+          <n-icon size="18" class="nav-icon"><ListOutline /></n-icon>任务列表
         </router-link>
       </div>
 
@@ -84,7 +81,6 @@ import {
   GridOutline,
   CloudDownloadOutline,
   ListOutline,
-  TimeOutline,
   NotificationsOutline,
   KeyOutline,
   SettingsOutline,
