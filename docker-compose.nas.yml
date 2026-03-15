@@ -1,0 +1,68 @@
+# yt-dlp Web - 群晖 / NAS 部署配置
+# 使用预构建的 Docker 镜像，无需本地编译
+#
+# 使用方法：
+# 1. 将此文件保存为 docker-compose.yml
+# 2. 修改下方的挂载路径为你的群晖实际路径
+# 3. 运行: docker compose up -d
+# 4. 访问: http://群晖IP:8686
+# 5. 更新: docker compose pull && docker compose up -d
+
+services:
+  app:
+    image: ghcr.io/pigeonmuyz/yt-dlp-web:latest
+    container_name: ytdlp-web
+    ports:
+      - "8686:8686"
+    volumes:
+      # 数据目录（配置、数据库缓存等）
+      - ./ytdlp-data:/data
+      # 下载目录 - 修改为你的群晖媒体库路径
+      # 例如群晖: /volume1/video/yt-dlp
+      - ./ytdlp-media:/media
+    environment:
+      - YTDLP_DB_HOST=postgres
+      - YTDLP_DB_PORT=5432
+      - YTDLP_DB_NAME=ytdlp_web
+      - YTDLP_DB_USER=ytdlp
+      - YTDLP_DB_PASSWORD=ytdlp123
+      - YTDLP_REDIS_HOST=redis
+      - YTDLP_REDIS_PORT=6379
+      - YTDLP_REDIS_DB=0
+      - YTDLP_ADMIN_PASSWORD=admin123
+      # ========== 可选配置 ==========
+      # Emby / Jellyfin 自动刷新
+      # - YTDLP_EMBY_URL=http://你的群晖IP:8096
+      # - YTDLP_EMBY_API_KEY=你的Emby-API-KEY
+      # 代理（如果需要访问YouTube）
+      # - YTDLP_PROXY=http://代理地址:端口
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ytdlp-postgres
+    environment:
+      - POSTGRES_DB=ytdlp_web
+      - POSTGRES_USER=ytdlp
+      - POSTGRES_PASSWORD=ytdlp123
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ytdlp -d ytdlp_web"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: ytdlp-redis
+    restart: unless-stopped
+
+volumes:
+  pgdata:
