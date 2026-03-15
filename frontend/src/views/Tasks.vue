@@ -20,7 +20,7 @@
           <div v-if="tasks.length">
             <div v-for="t in tasks" :key="t.id" class="task-item">
               <div class="task-thumb">
-                <img v-if="t.thumbnail" :src="t.thumbnail" referrerpolicy="no-referrer" />
+                <img v-if="t.thumbnail" :src="'/api/thumb?url=' + encodeURIComponent(t.thumbnail)" loading="lazy" referrerpolicy="no-referrer" />
                 <div v-else class="task-thumb-placeholder">
                   <n-icon size="20"><VideocamOutline /></n-icon>
                 </div>
@@ -67,10 +67,11 @@
             </div>
           </div>
           <!-- 分页 -->
-          <div v-if="totalTasks > pageSize" style="display: flex; justify-content: center; margin-top: 16px;">
-            <n-pagination v-model:page="currentPage" :page-count="Math.ceil(totalTasks / pageSize)" :page-size="pageSize" @update:page="loadTasks" />
+          <div style="display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 16px; font-size: 13px; color: var(--text-secondary);">
+            <span>共 {{ totalTasks }} 条</span>
+            <n-pagination v-if="totalTasks > pageSize" v-model:page="currentPage" :page-count="Math.ceil(totalTasks / pageSize)" :page-size="pageSize" @update:page="loadTasks" />
           </div>
-          <div v-else-if="!tasks.length" class="empty-state">
+          <div v-if="!tasks.length" class="empty-state">
             <n-icon size="48" color="var(--text-muted)" style="opacity:0.4;"><ListOutline /></n-icon>
             <p style="margin-top:12px;">暂无任务</p>
           </div>
@@ -303,7 +304,10 @@ async function remove(id) {
 }
 
 @media (max-width: 768px) {
-  .task-thumb { width: 80px; height: 45px; }
+  .task-item { gap: 10px; padding: 10px 0; }
+  .task-thumb { width: 72px; height: 40px; border-radius: 6px; }
   .task-title { font-size: 13px; }
+  .task-meta { font-size: 11px; }
+  .task-actions { flex-direction: row; align-items: center; gap: 4px; }
 }
 </style>

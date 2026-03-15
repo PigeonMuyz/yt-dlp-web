@@ -126,6 +126,52 @@ async def get_status():
     }
 
 
+# ==================== 缩略图代理 ====================
+
+@app.get("/api/thumb")
+async def thumb_proxy(url: str):
+    """代理并缓存远程缩略图"""
+    import hashlib
+    import httpx
+    from fastapi.responses import FileResponse
+
+    if not url:
+        return JSONResponse({"error": "no url"}, 404)
+
+    # 用 URL hash 做文件名
+    url_hash = hashlib.md5(url.encode()).hexdigest()
+    cache_dir = os.path.join(settings.download_dir, ".thumbs")
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # 尝试找已缓存文件
+    for ext in [".webp", ".jpg", ".png"]:
+        cached = os.path.join(cache_dir, url_hash + ext)
+        if os.path.exists(cached):
+            return FileResponse(cached, media_type=f"image/{'jpeg' if ext == '.jpg' else ext[1:]}")
+
+    # 下载并缓存
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return JSONResponse({"error": "fetch failed"}, 502)
+
+            ct = resp.headers.get("content-type", "")
+            ext = ".jpg"
+            if "webp" in ct:
+                ext = ".webp"
+            elif "png" in ct:
+                ext = ".png"
+
+            cached = os.path.join(cache_dir, url_hash + ext)
+            with open(cached, "wb") as f:
+                f.write(resp.content)
+
+            return FileResponse(cached, media_type=ct or "image/jpeg")
+    except Exception:
+        return JSONResponse({"error": "proxy failed"}, 502)
+
+
 # ==================== 设置 API ====================
 
 @app.get("/api/settings")
