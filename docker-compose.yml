@@ -1,0 +1,60 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    container_name: ytdlp-web
+    ports:
+      - "8686:8686"
+    volumes:
+      - ./data:/data
+      - ./media:/media
+    environment:
+      # PostgreSQL - 可连接已有实例，首次运行通过 Web UI 配置
+      - YTDLP_DB_HOST=${DB_HOST:-postgres}
+      - YTDLP_DB_PORT=${DB_PORT:-5432}
+      - YTDLP_DB_NAME=${DB_NAME:-ytdlp_web}
+      - YTDLP_DB_USER=${DB_USER:-ytdlp}
+      - YTDLP_DB_PASSWORD=${DB_PASSWORD:-}
+      - YTDLP_DATABASE_URL=${DATABASE_URL:-}
+      # Redis - 可连接已有实例
+      - YTDLP_REDIS_HOST=${REDIS_HOST:-redis}
+      - YTDLP_REDIS_PORT=${REDIS_PORT:-6379}
+      - YTDLP_REDIS_DB=${REDIS_DB:-0}
+      - YTDLP_REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - YTDLP_REDIS_URL=${REDIS_URL:-}
+      # Google OAuth
+      - YTDLP_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - YTDLP_GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      # Emby
+      - YTDLP_EMBY_URL=${EMBY_URL:-}
+      - YTDLP_EMBY_API_KEY=${EMBY_API_KEY:-}
+      # 代理
+      - YTDLP_PROXY=${PROXY:-}
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+
+  # 如果你有现成的 PostgreSQL，注释掉这个服务
+  postgres:
+    image: postgres:16-alpine
+    container_name: ytdlp-postgres
+    environment:
+      - POSTGRES_DB=${DB_NAME:-ytdlp_web}
+      - POSTGRES_USER=${DB_USER:-ytdlp}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-ytdlp123}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # ports:
+    #   - "5432:5432"
+
+  # 如果你有现成的 Redis，注释掉这个服务
+  redis:
+    image: redis:7-alpine
+    container_name: ytdlp-redis
+    # ports:
+    #   - "6379:6379"
+
+volumes:
+  pgdata:
