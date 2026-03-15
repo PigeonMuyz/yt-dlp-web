@@ -29,6 +29,13 @@ def start_scheduler():
         id="check_subscriptions",
         replace_existing=True,
     )
+    scheduler.add_job(
+        retry_missing_subtitles,
+        "interval",
+        seconds=600,  # 每 10 分钟
+        id="retry_subtitles",
+        replace_existing=True,
+    )
     scheduler.start()
 
 
@@ -464,3 +471,73 @@ async def _check_single_subscription(sub_id: int):
                     await r.rpush("download_queue", str(task.id))
     finally:
         await r.close()
+
+
+async def retry_missing_subtitles():
+    """后台重试下载缺失的字幕"""
+    import os
+    import glob
+    from datetime import datetime, timedelta
+    from database import async_session
+    from models import DownloadTask, TaskStatus
+    from sqlalchemy import select
+    from config import settings
+
+    async with async_session() as db:
+        # 查找最近 24 小时内完成但可能缺少字幕的任务
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        result = await db.execute(
+            select(DownloadTask).where(
+                DownloadTask.status == TaskStatus.COMPLETED,
+                DownloadTask.completed_at >= cutoff,
+                DownloadTask.output_path.isnot(None),
+            ).limit(20)
+        )
+        tasks = result.scalars().all()
+
+        for task in tasks:
+            if not task.output_path or not os.path.exists(task.output_path):
+                continue
+
+            video_dir = os.path.dirname(task.output_path)
+            # 检查是否已有字幕文件
+            sub_files = glob.glob(os.path.join(video_dir, "*.vtt")) + \
+                        glob.glob(os.path.join(video_dir, "*.srt"))
+            if sub_files:
+                continue  # 已有字幕，跳过
+
+            # 尝试单独下载字幕
+            try:
+                import yt_dlp
+                cookies_file = ""
+                platform = task.platform.value if task.platform else ""
+                if platform == "youtube":
+                    cookies_file = os.path.join(settings.download_dir, ".cookies", "youtube.txt")
+                elif platform == "bilibili":
+                    cookies_file = os.path.join(settings.download_dir, ".cookies", "bilibili.txt")
+
+                base_name = os.path.splitext(os.path.basename(task.output_path))[0]
+                opts = {
+                    "quiet": True,
+                    "no_warnings": True,
+                    "skip_download": True,
+                    "writesubtitles": True,
+                    "writeautomaticsub": True,
+                    "subtitleslangs": ["zh-Hans", "en", "ja"],
+                    "subtitlesformat": "vtt/srt/best",
+                    "outtmpl": os.path.join(video_dir, f"{base_name}.%(ext)s"),
+                }
+                if settings.proxy:
+                    opts["proxy"] = settings.proxy
+                if cookies_file and os.path.exists(cookies_file):
+                    opts["cookiefile"] = cookies_file
+
+                def _dl():
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        ydl.extract_info(task.video_url, download=True)
+
+                import asyncio
+                await asyncio.to_thread(_dl)
+                logger.info(f"字幕重试成功: {task.title}")
+            except Exception as e:
+                logger.debug(f"字幕重试失败: {task.title}: {e}")

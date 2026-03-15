@@ -66,6 +66,7 @@ async def list_tasks(
         items.append({
             "id": t.id,
             "platform": t.platform.value,
+            "video_id": t.video_id,
             "title": t.title,
             "video_url": t.video_url,
             "thumbnail": t.thumbnail,

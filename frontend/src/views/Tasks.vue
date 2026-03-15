@@ -17,49 +17,53 @@
             </n-button>
           </div>
 
-          <div v-if="tasks.length">
-            <div v-for="t in tasks" :key="t.id" class="task-item">
+          <div v-if="groupedTasks.length">
+            <div v-for="g in groupedTasks" :key="g.key" class="task-item">
               <div class="task-thumb">
-                <img v-if="t.thumbnail" :src="'/api/thumb?url=' + encodeURIComponent(t.thumbnail)" loading="lazy" referrerpolicy="no-referrer" />
+                <img v-if="g.main.thumbnail" :src="'/api/thumb?url=' + encodeURIComponent(g.main.thumbnail)" loading="lazy" referrerpolicy="no-referrer" />
                 <div v-else class="task-thumb-placeholder">
                   <n-icon size="20"><VideocamOutline /></n-icon>
                 </div>
               </div>
               <div class="task-info">
-                <div class="task-title">{{ t.title || '解析中...' }}</div>
+                <div class="task-title">{{ g.main.title || '解析中...' }}</div>
                 <div class="task-meta">
-                  <span v-if="t.channel_name">{{ t.channel_name }} ·</span>
-                  <span>{{ t.platform === 'bilibili' ? 'B站' : 'YouTube' }}</span>
-                  <span v-if="t.resolution"> · {{ t.resolution }}</span>
-                  <span v-if="t.codec"> · {{ t.codec.toUpperCase() }}</span>
-                  <span v-if="t.file_size"> · {{ formatSize(t.file_size) }}</span>
-                  <span v-if="t.duration"> · {{ formatDuration(t.duration) }}</span>
+                  <span v-if="g.main.channel_name">{{ g.main.channel_name }} ·</span>
+                  <span>{{ g.main.platform === 'bilibili' ? 'B站' : 'YouTube' }}</span>
+                  <span v-if="g.main.resolution"> · {{ g.main.resolution }}</span>
+                  <span v-if="g.main.duration"> · {{ formatDuration(g.main.duration) }}</span>
                 </div>
-                <div v-if="t.status === 'downloading'" style="margin-top:6px;">
-                  <n-progress type="line" :percentage="t.progress" :height="6" :show-indicator="false" status="info" />
+                <!-- 编码标签组 -->
+                <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;">
+                  <n-tag v-for="sub in g.subs" :key="sub.id" size="small" round
+                    :type="sub.status === 'completed' ? 'success' : sub.status === 'failed' ? 'error' : sub.status === 'downloading' ? 'info' : 'default'">
+                    {{ (sub.codec || 'auto').toUpperCase() }}
+                    <template v-if="sub.status === 'completed' && sub.file_size"> · {{ formatSize(sub.file_size) }}</template>
+                    <template v-if="sub.status === 'downloading'"> {{ sub.progress }}%</template>
+                  </n-tag>
+                </div>
+                <div v-if="g.downloading" style="margin-top:6px;">
+                  <n-progress type="line" :percentage="g.downloading.progress" :height="6" :show-indicator="false" status="info" />
                   <div class="task-meta" style="margin-top:4px;">
-                    {{ t.progress }}%
-                    <span v-if="t.speed"> · {{ t.speed }}</span>
-                    <span v-if="t.eta"> · 剩余 {{ t.eta }}</span>
+                    {{ g.downloading.progress }}%
+                    <span v-if="g.downloading.speed"> · {{ g.downloading.speed }}</span>
+                    <span v-if="g.downloading.eta"> · 剩余 {{ g.downloading.eta }}</span>
                   </div>
                 </div>
-                <div v-if="t.status === 'failed' && t.error_msg" class="task-error">
+                <div v-for="sub in g.subs.filter(s => s.status === 'failed' && s.error_msg)" :key="'err'+sub.id" class="task-error">
                   <n-icon size="12"><AlertCircleOutline /></n-icon>
-                  {{ t.error_msg.substring(0, 150) }}
+                  {{ sub.codec?.toUpperCase() }}: {{ sub.error_msg.substring(0, 120) }}
                 </div>
               </div>
               <div class="task-actions">
-                <n-tag :type="statusTypeMap[t.status]" size="small" round>
-                  {{ statusLabels[t.status] || t.status }}
+                <n-tag :type="statusTypeMap[g.overallStatus]" size="small" round>
+                  {{ statusLabels[g.overallStatus] || g.overallStatus }}
                 </n-tag>
                 <div style="display:flex;gap:4px;margin-top:8px;">
-                  <n-button v-if="t.status === 'failed'" size="tiny" tertiary type="primary" @click="retry(t.id)">
+                  <n-button v-if="g.subs.some(s => s.status === 'failed')" size="tiny" tertiary type="primary" @click="retryGroup(g)">
                     <template #icon><n-icon size="14"><RefreshOutline /></n-icon></template>
                   </n-button>
-                  <n-button v-if="t.status === 'pending'" size="tiny" tertiary type="warning" @click="cancel(t.id)">
-                    <template #icon><n-icon size="14"><CloseOutline /></n-icon></template>
-                  </n-button>
-                  <n-button size="tiny" tertiary type="error" @click="remove(t.id)">
+                  <n-button v-for="sub in g.subs" :key="'del'+sub.id" size="tiny" tertiary type="error" @click="remove(sub.id)" v-if="g.subs.length === 1">
                     <template #icon><n-icon size="14"><TrashOutline /></n-icon></template>
                   </n-button>
                 </div>
@@ -114,7 +118,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useMessage } from 'naive-ui'
 import axios from 'axios'
 import {
@@ -141,6 +145,30 @@ const currentPage = ref(1)
 const pageSize = 20
 const totalTasks = ref(0)
 let refreshTimer = null
+
+// 按 video_id 分组双编码任务
+const groupedTasks = computed(() => {
+  const groups = new Map()
+  for (const t of tasks.value) {
+    const key = t.video_id || `solo_${t.id}`
+    if (!groups.has(key)) {
+      groups.set(key, { key, main: t, subs: [t] })
+    } else {
+      groups.get(key).subs.push(t)
+    }
+  }
+  // 计算每组的整体状态
+  for (const g of groups.values()) {
+    const statuses = g.subs.map(s => s.status)
+    if (statuses.includes('downloading')) g.overallStatus = 'downloading'
+    else if (statuses.includes('pending')) g.overallStatus = 'pending'
+    else if (statuses.every(s => s === 'completed')) g.overallStatus = 'completed'
+    else if (statuses.includes('failed')) g.overallStatus = 'failed'
+    else g.overallStatus = statuses[0]
+    g.downloading = g.subs.find(s => s.status === 'downloading')
+  }
+  return [...groups.values()]
+})
 
 const statusLabels = {
   pending: '等待中',
@@ -224,6 +252,16 @@ async function loadHistory() {
 async function retry(id) {
   await axios.post(`/api/task/${id}/retry`)
   message.success('已重新加入队列')
+  await loadTasks()
+}
+
+async function retryGroup(g) {
+  for (const sub of g.subs) {
+    if (sub.status === 'failed') {
+      await axios.post(`/api/task/${sub.id}/retry`)
+    }
+  }
+  message.success('已重试该视频所有失败编码')
   await loadTasks()
 }
 

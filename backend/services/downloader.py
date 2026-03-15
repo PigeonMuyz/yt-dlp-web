@@ -163,17 +163,20 @@ def download_video(
         "format": format_string,
         "outtmpl": os.path.join(output_dir, f"{base_name}.%(ext)s"),
         "merge_output_format": merge_format or None,
-        # 字幕
+        # 字幕 — 忽略字幕下载错误（429 限流等）
         "writesubtitles": True,
         "writeautomaticsub": True,
         "subtitleslangs": subtitle_langs.split(",") if subtitle_langs else [],
         "subtitlesformat": "vtt/srt/best",
+        "ignore_no_formats_error": True,
         # 缩略图
         "writethumbnail": True,
         # 元数据
         "writedescription": True,
         "writeinfojson": True,
     })
+    # 字幕下载失败不应中断整个任务
+    opts["ignoreerrors"] = "only_download"  # 只忽略非核心下载错误
 
     # 进度回调
     if progress_callback:
