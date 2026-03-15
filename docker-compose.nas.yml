@@ -77,6 +77,9 @@ services:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_POLL_INTERVAL=21600  # 6 小时检查一次
       - WATCHTOWER_SCOPE=ytdlp
+      # 代理（如果群晖拉取 ghcr.io 镜像需要代理，取消注释下面两行）
+      # - HTTP_PROXY=http://代理地址:端口
+      # - HTTPS_PROXY=http://代理地址:端口
     labels:
       - "com.centurylinklabs.watchtower.scope=ytdlp"
     restart: unless-stopped
