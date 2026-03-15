@@ -100,15 +100,44 @@ async def process_download_queue():
 
                 await db.commit()
 
-                # 构建路径
+                # 构建路径 —— 区分单品 vs 剧集
                 year = task.upload_date[:4] if task.upload_date else ""
-                category = "YouTube" if task.platform == Platform.YOUTUBE else "B站"
                 ext = ".webm" if task.codec in ("vp9", "av1") else ".mp4"
+                is_series_task = bool(task.series_episode_id)
 
-                paths = build_movie_path(
-                    settings.download_dir, category, task.title, year,
-                    codec=task.codec, ext=ext,
-                )
+                if is_series_task:
+                    # 剧集任务：查找关联的 SeriesEpisode 和 ManualSeries
+                    from models import SeriesEpisode, ManualSeries, SeriesStatus
+                    ep_result = await db.execute(
+                        select(SeriesEpisode).where(SeriesEpisode.id == task.series_episode_id)
+                    )
+                    series_ep = ep_result.scalar()
+                    series_result = await db.execute(
+                        select(ManualSeries).where(ManualSeries.id == series_ep.series_id)
+                    ) if series_ep else None
+                    series_obj = series_result.scalar() if series_result else None
+
+                    if series_obj and series_ep:
+                        category = series_obj.category or settings.dir_series
+                        from services.file_organizer import build_tvshow_path
+                        paths = build_tvshow_path(
+                            settings.download_dir, category, series_obj.title, year,
+                            season=series_obj.season, episode=series_ep.episode_number,
+                            episode_title=task.title,
+                            codec=task.codec, ext=ext,
+                        )
+                    else:
+                        # fallback 到单品
+                        is_series_task = False
+
+                if not is_series_task:
+                    # 单品任务
+                    category = "YouTube" if task.platform == Platform.YOUTUBE else "B站"
+                    paths = build_movie_path(
+                        settings.download_dir, category, task.title, year,
+                        codec=task.codec, ext=ext,
+                    )
+
                 ensure_dirs(paths)
 
                 # 构建 format string
@@ -156,26 +185,27 @@ async def process_download_queue():
                                 thumb_found = True
                                 break
 
-                # 生成 NFO
+                # 生成 NFO（仅单品生成 movie.nfo，剧集 episode.nfo 在后面生成）
                 premiered = ""
                 if task.upload_date and len(task.upload_date) == 8:
                     premiered = f"{task.upload_date[:4]}-{task.upload_date[4:6]}-{task.upload_date[6:8]}"
 
-                nfo_content = generate_movie_nfo(
-                    title=task.title,
-                    plot=task.description[:2000] if task.description else "",
-                    year=year,
-                    premiered=premiered,
-                    studio=task.channel_name,
-                    director=task.channel_name,
-                    video_url=task.video_url,
-                    video_id=task.video_id,
-                    platform=task.platform.value,
-                    thumb_filename=os.path.basename(paths["thumb"]),
-                    duration_seconds=task.duration,
-                    tags=[category],
-                )
-                save_nfo(nfo_content, paths["nfo"])
+                if not is_series_task:
+                    nfo_content = generate_movie_nfo(
+                        title=task.title,
+                        plot=task.description[:2000] if task.description else "",
+                        year=year,
+                        premiered=premiered,
+                        studio=task.channel_name,
+                        director=task.channel_name,
+                        video_url=task.video_url,
+                        video_id=task.video_id,
+                        platform=task.platform.value,
+                        thumb_filename=os.path.basename(paths.get("thumb", "")),
+                        duration_seconds=task.duration,
+                        tags=[category],
+                    )
+                    save_nfo(nfo_content, paths["nfo"])
 
                 # 更新任务状态
                 actual_size = os.path.getsize(paths["video"]) if os.path.exists(paths["video"]) else 0
@@ -184,6 +214,37 @@ async def process_download_queue():
                 task.output_path = paths["video"]
                 task.file_size = actual_size
                 task.completed_at = datetime.utcnow()
+
+                # 同步剧集状态
+                if is_series_task and series_ep and series_obj:
+                    series_ep.status = TaskStatus.COMPLETED
+                    # 检查该剧集所有集是否全部完成
+                    from sqlalchemy.orm import selectinload
+                    all_eps_result = await db.execute(
+                        select(SeriesEpisode).where(SeriesEpisode.series_id == series_obj.id)
+                    )
+                    all_eps = all_eps_result.scalars().all()
+                    if all(ep.status == TaskStatus.COMPLETED for ep in all_eps):
+                        series_obj.status = SeriesStatus.COMPLETED
+                    else:
+                        series_obj.status = SeriesStatus.PARTIAL
+
+                    # 为剧集集数生成 episode.nfo
+                    from services.nfo_generator import generate_episode_nfo, save_nfo as save_nfo_file
+                    ep_nfo = generate_episode_nfo(
+                        title=task.title,
+                        season=series_obj.season,
+                        episode=series_ep.episode_number,
+                        plot=task.description[:2000] if task.description else "",
+                        director=task.channel_name,
+                        video_url=task.video_url,
+                        video_id=task.video_id,
+                        platform=task.platform.value,
+                        thumb_filename=os.path.basename(paths.get("thumb", "")),
+                        duration_seconds=task.duration,
+                    )
+                    save_nfo_file(ep_nfo, paths["nfo"])
+
                 await db.commit()
 
                 # 触发 Emby 库刷新

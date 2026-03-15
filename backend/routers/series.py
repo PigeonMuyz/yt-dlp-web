@@ -385,6 +385,7 @@ async def download_series(series_id: int, db: AsyncSession = Depends(get_db)):
                     video_url=ep.video_url,
                     title=ep.title,
                     status=TaskStatus.PENDING,
+                    series_episode_id=ep.id,
                 )
                 db.add(task)
                 await db.flush()
@@ -423,3 +424,51 @@ async def download_series(series_id: int, db: AsyncSession = Depends(get_db)):
         "files_moved": moved,
         "message": f"移动 {moved} 个已下载文件，新建 {created} 个下载任务",
     }
+
+
+# ---------- TMDB 搜索 ----------
+
+@router.get("/tmdb/search")
+async def tmdb_search(query: str, media_type: str = "tv"):
+    """搜索 TMDB 获取剧集/电影元数据"""
+    import aiohttp
+
+    if not settings.tmdb_api_key:
+        raise HTTPException(400, "未配置 TMDB API Key，请在系统设置中填写")
+
+    search_url = f"https://api.themoviedb.org/3/search/{media_type}"
+    params = {
+        "api_key": settings.tmdb_api_key,
+        "query": query,
+        "language": "zh-CN",
+        "page": 1,
+    }
+
+    async with aiohttp.ClientSession() as session:
+        # 搜索
+        async with session.get(search_url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                raise HTTPException(resp.status, "TMDB 搜索失败")
+            data = await resp.json()
+
+    results = []
+    for item in data.get("results", [])[:8]:
+        title = item.get("name") or item.get("title") or ""
+        overview = item.get("overview", "")
+        poster_path = item.get("poster_path", "")
+        backdrop_path = item.get("backdrop_path", "")
+        year = (item.get("first_air_date") or item.get("release_date") or "")[:4]
+
+        results.append({
+            "tmdb_id": item["id"],
+            "title": title,
+            "original_title": item.get("original_name") or item.get("original_title") or "",
+            "overview": overview,
+            "poster_url": f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else "",
+            "backdrop_url": f"https://image.tmdb.org/t/p/w780{backdrop_path}" if backdrop_path else "",
+            "year": year,
+            "vote_average": item.get("vote_average", 0),
+        })
+
+    return results
+

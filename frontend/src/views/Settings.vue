@@ -87,6 +87,21 @@
       <n-button type="primary" size="small" @click="saveEmby">保存</n-button>
     </div>
 
+    <!-- TMDB 配置 -->
+    <div class="card">
+      <div class="card-title">
+        <n-icon size="16" style="margin-right: 6px; vertical-align: -2px;"><SearchOutline /></n-icon>
+        TMDB 元数据
+      </div>
+      <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+        配置后可在剧集管理中搜索 TMDB 自动填充封面、简介等信息。<a href="https://www.themoviedb.org/settings/api" target="_blank" style="color: var(--primary);">获取 API Key</a>
+      </p>
+      <n-form-item label="TMDB API Key">
+        <n-input v-model:value="tmdbApiKey" placeholder="输入 TMDB API Key (v3 auth)" type="password" show-password-on="click" />
+      </n-form-item>
+      <n-button type="primary" size="small" @click="saveTmdb">保存</n-button>
+    </div>
+
     <!-- 系统信息 -->
     <div class="card">
       <div class="card-title">
@@ -115,6 +130,7 @@ import {
   TvOutline,
   AlbumsOutline,
   InformationCircleOutline,
+  SearchOutline,
 } from '@vicons/ionicons5'
 
 const message = useMessage()
@@ -127,6 +143,7 @@ const dirSeries = ref('剧集')
 const dirCollections = ref('合集')
 const embyUrl = ref('')
 const embyApiKey = ref('')
+const tmdbApiKey = ref('')
 const envProxy = ref('')
 
 const resolutionOptions = [
@@ -149,6 +166,7 @@ onMounted(async () => {
       dirCollections.value = res.data.dir_collections || '合集'
       embyUrl.value = res.data.emby_url || ''
       embyApiKey.value = res.data.emby_api_key || ''
+      tmdbApiKey.value = res.data.tmdb_api_key || ''
       envProxy.value = res.data.env_proxy || ''
     }
   } catch (e) { console.error(e) }
@@ -181,6 +199,13 @@ async function saveEmby() {
       emby_api_key: embyApiKey.value,
     })
     message.success('Emby 设置已保存')
+  } catch (e) { message.error('保存失败') }
+}
+
+async function saveTmdb() {
+  try {
+    await axios.post('/api/settings', { tmdb_api_key: tmdbApiKey.value })
+    message.success('TMDB 设置已保存')
   } catch (e) { message.error('保存失败') }
 }
 </script>

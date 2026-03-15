@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     emby_url: str = ""
     emby_api_key: str = ""
 
+    # TMDB
+    tmdb_api_key: str = ""
+
     # 下载
     download_dir: str = "/media"
     max_concurrent_downloads: int = 3

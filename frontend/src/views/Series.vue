@@ -167,8 +167,34 @@
     </n-modal>
 
     <!-- 编辑剧集信息 Modal -->
-    <n-modal v-model:show="showEditModal" style="max-width: 480px; width: 90%;">
+    <n-modal v-model:show="showEditModal" style="max-width: 520px; width: 90%;">
       <n-card title="编辑剧集信息" :bordered="false" style="border-radius: 16px;" closable @close="showEditModal = false">
+        <!-- TMDB 搜索 -->
+        <div style="margin-bottom: 16px; padding: 12px; background: var(--bg-hover); border-radius: 10px;">
+          <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">
+            <n-icon size="14" style="vertical-align: -2px; margin-right: 4px;"><SearchOutline /></n-icon>
+            从 TMDB 搜索元数据
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <n-input v-model:value="tmdbQuery" placeholder="输入剧集名搜索..." size="small" @keyup.enter="searchTmdb" />
+            <n-button size="small" @click="searchTmdb" :loading="tmdbSearching">搜索</n-button>
+          </div>
+          <div v-if="tmdbResults.length" style="margin-top: 10px; max-height: 200px; overflow-y: auto;">
+            <div v-for="r in tmdbResults" :key="r.tmdb_id" class="tmdb-item" @click="applyTmdb(r)">
+              <img v-if="r.poster_url" :src="r.poster_url" style="width: 36px; height: 54px; border-radius: 4px; object-fit: cover; flex-shrink: 0;" />
+              <div style="flex: 1; min-width: 0;">
+                <div style="font-weight: 600; font-size: 13px;">{{ r.title }}
+                  <span v-if="r.year" style="color: var(--text-muted); font-weight: 400;"> ({{ r.year }})</span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                  {{ r.overview || r.original_title }}
+                </div>
+              </div>
+              <n-tag size="tiny" round>{{ r.vote_average.toFixed(1) }}</n-tag>
+            </div>
+          </div>
+        </div>
+
         <n-form-item label="剧集标题">
           <n-input v-model:value="editTitle" />
         </n-form-item>
@@ -223,6 +249,7 @@ import {
   VideocamOutline,
   CreateOutline,
   ImageOutline,
+  SearchOutline,
 } from '@vicons/ionicons5'
 
 const message = useMessage()
@@ -251,6 +278,11 @@ const editDesc = ref('')
 const editPoster = ref('')
 const editSeason = ref(1)
 const saving = ref(false)
+
+// TMDB 搜索
+const tmdbQuery = ref('')
+const tmdbResults = ref([])
+const tmdbSearching = ref(false)
 
 // 海报快捷编辑
 const editingPoster = ref(false)
@@ -333,7 +365,31 @@ function editSeriesInfo() {
   editDesc.value = detail.value.description || ''
   editPoster.value = detail.value.poster_url || ''
   editSeason.value = detail.value.season || 1
+  tmdbQuery.value = detail.value.title || ''
+  tmdbResults.value = []
   showEditModal.value = true
+}
+
+async function searchTmdb() {
+  if (!tmdbQuery.value.trim()) return
+  tmdbSearching.value = true
+  try {
+    const res = await axios.get('/api/series/tmdb/search', { params: { query: tmdbQuery.value, media_type: 'tv' } })
+    tmdbResults.value = res.data
+    if (!res.data.length) message.info('未找到匹配结果')
+  } catch (e) {
+    message.error(e.response?.data?.detail || 'TMDB 搜索失败，请检查 API Key')
+  } finally {
+    tmdbSearching.value = false
+  }
+}
+
+function applyTmdb(r) {
+  editTitle.value = r.title || editTitle.value
+  editDesc.value = r.overview || editDesc.value
+  editPoster.value = r.poster_url || editPoster.value
+  tmdbResults.value = []
+  message.success('已应用 TMDB 信息')
 }
 
 async function saveSeriesInfo() {
@@ -513,4 +569,14 @@ async function downloadAll() {
   flex-direction: column;
   align-items: flex-end;
 }
+.tmdb-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.tmdb-item:hover { background: rgba(0,0,0,0.04); }
 </style>

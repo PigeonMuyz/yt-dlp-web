@@ -136,6 +136,7 @@ class DownloadTask(Base):
     # 关联
     subscription_id = Column(Integer, ForeignKey("subscriptions.id"), nullable=True)
     subscription = relationship("Subscription", backref="tasks")
+    series_episode_id = Column(Integer, ForeignKey("series_episodes.id"), nullable=True)
 
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
