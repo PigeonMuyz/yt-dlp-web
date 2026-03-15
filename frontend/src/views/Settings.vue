@@ -122,6 +122,7 @@
         </n-form-item>
       </div>
       <n-button type="primary" size="small" @click="saveDev">保存</n-button>
+      <n-button size="small" style="margin-left: 8px;" @click="checkAllSubs" :loading="checkingAll">立即检查所有订阅</n-button>
     </div>
 
     <!-- 系统信息 -->
@@ -171,6 +172,7 @@ const embyApiKey = ref('')
 const tmdbApiKey = ref('')
 const devMode = ref(false)
 const devMaxItems = ref(5)
+const checkingAll = ref(false)
 const envProxy = ref('')
 
 const resolutionOptions = [
@@ -243,5 +245,14 @@ async function saveDev() {
     await axios.post('/api/settings', { dev_mode: devMode.value, dev_max_items: devMaxItems.value })
     message.success('开发者选项已保存')
   } catch (e) { message.error('保存失败') }
+}
+
+async function checkAllSubs() {
+  checkingAll.value = true
+  try {
+    const res = await axios.post('/api/subscription/check-all')
+    message.success(res.data.message)
+  } catch (e) { message.error('触发失败') }
+  finally { checkingAll.value = false }
 }
 </script>

@@ -418,11 +418,12 @@ body {
 
   .main-content {
     margin-left: 0;
-    padding: 16px;
+    padding: 12px;
   }
 
   .stat-grid {
     grid-template-columns: 1fr 1fr;
+    gap: 8px;
   }
 
   .form-row {
@@ -434,7 +435,7 @@ body {
     align-items: center;
     gap: 12px;
     padding: 12px 0;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
   }
 
   .mobile-menu-btn {
@@ -443,6 +444,40 @@ body {
     background: none;
     border: none;
     color: var(--text-primary);
+  }
+
+  .page-title {
+    font-size: 18px;
+  }
+
+  .card {
+    padding: 14px 16px;
+    border-radius: var(--radius);
+  }
+
+  .stat-card {
+    padding: 12px 14px;
+  }
+
+  .stat-value {
+    font-size: 20px;
+  }
+
+  .account-card {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .setup-card {
+    padding: 24px 20px;
+    margin: 16px;
+    border-radius: var(--radius-lg);
+  }
+
+  /* Naive UI modal 在移动端全宽 */
+  .n-modal {
+    width: 95% !important;
+    max-width: 95% !important;
   }
 }
 

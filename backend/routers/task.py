@@ -99,6 +99,9 @@ async def task_stats(db: AsyncSession = Depends(get_db)):
         )
         counts[status.value] = result.scalar()
 
+    total_result = await db.execute(select(func.count(DownloadTask.id)))
+    counts["total"] = total_result.scalar()
+
     return counts
 
 

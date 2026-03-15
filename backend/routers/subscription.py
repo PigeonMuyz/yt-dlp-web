@@ -157,3 +157,49 @@ async def check_now(sub_id: int, db: AsyncSession = Depends(get_db)):
     await redis_client.rpush("check_subscription", str(sub_id))
 
     return {"message": f"已触发检查: {sub.name}"}
+
+
+@router.get("/{sub_id}/tasks")
+async def subscription_tasks(sub_id: int, db: AsyncSession = Depends(get_db)):
+    """获取订阅下的所有下载任务"""
+    from models import DownloadTask
+    from sqlalchemy import desc
+
+    result = await db.execute(select(Subscription).where(Subscription.id == sub_id))
+    sub = result.scalar()
+    if not sub:
+        raise HTTPException(404, "订阅不存在")
+
+    task_result = await db.execute(
+        select(DownloadTask)
+        .where(DownloadTask.subscription_id == sub_id)
+        .order_by(desc(DownloadTask.created_at))
+    )
+    tasks = task_result.scalars().all()
+
+    return [
+        {
+            "id": t.id,
+            "title": t.title,
+            "video_url": t.video_url,
+            "thumbnail": t.thumbnail,
+            "codec": t.codec,
+            "resolution": t.resolution,
+            "status": t.status.value,
+            "progress": t.progress,
+            "error_msg": t.error_msg,
+            "created_at": t.created_at.isoformat() if t.created_at else "",
+        }
+        for t in tasks
+    ]
+
+
+@router.post("/check-all")
+async def check_all_subscriptions(db: AsyncSession = Depends(get_db)):
+    """立即检查所有启用的订阅"""
+    result = await db.execute(select(Subscription).where(Subscription.enabled == True))
+    subs = result.scalars().all()
+    from main import redis_client
+    for sub in subs:
+        await redis_client.rpush("check_subscription", str(sub.id))
+    return {"message": f"已触发 {len(subs)} 个订阅检查"}

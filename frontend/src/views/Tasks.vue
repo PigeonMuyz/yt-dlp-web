@@ -66,7 +66,11 @@
               </div>
             </div>
           </div>
-          <div v-else class="empty-state">
+          <!-- 分页 -->
+          <div v-if="totalTasks > pageSize" style="display: flex; justify-content: center; margin-top: 16px;">
+            <n-pagination v-model:page="currentPage" :page-count="Math.ceil(totalTasks / pageSize)" :page-size="pageSize" @update:page="loadTasks" />
+          </div>
+          <div v-else-if="!tasks.length" class="empty-state">
             <n-icon size="48" color="var(--text-muted)" style="opacity:0.4;"><ListOutline /></n-icon>
             <p style="margin-top:12px;">暂无任务</p>
           </div>
@@ -132,6 +136,9 @@ const tasks = ref([])
 const history = ref([])
 const filter = ref('')
 const activeTab = ref('tasks')
+const currentPage = ref(1)
+const pageSize = 20
+const totalTasks = ref(0)
 let refreshTimer = null
 
 const statusLabels = {
@@ -197,10 +204,15 @@ onBeforeUnmount(() => {
 })
 
 async function loadTasks() {
-  const params = { limit: 50, offset: 0 }
+  const offset = (currentPage.value - 1) * pageSize
+  const params = { limit: pageSize, offset }
   if (filter.value) params.status = filter.value
-  const res = await axios.get('/api/task/list', { params })
+  const [res, statsRes] = await Promise.all([
+    axios.get('/api/task/list', { params }),
+    axios.get('/api/task/stats'),
+  ])
   tasks.value = res.data
+  totalTasks.value = filter.value ? (statsRes.data[filter.value] || 0) : (statsRes.data.total || 0)
 }
 
 async function loadHistory() {

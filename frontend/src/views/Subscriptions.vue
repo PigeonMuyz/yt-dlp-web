@@ -9,7 +9,7 @@
     </div>
 
     <!-- 订阅列表 -->
-    <div v-for="sub in subscriptions" :key="sub.id" class="card" style="display: flex; gap: 16px; align-items: center;">
+    <div v-for="sub in subscriptions" :key="sub.id" class="card sub-card" @click="toggleExpand(sub.id)" style="cursor: pointer;">
       <img v-if="sub.thumbnail" :src="sub.thumbnail" style="width: 60px; height: 60px; border-radius: 50%; object-fit: cover;" />
       <div v-else style="width: 60px; height: 60px; border-radius: 50%; background: var(--bg-hover); display: flex; align-items: center; justify-content: center; font-size: 24px;">
         {{ sub.platform === 'youtube' ? '📺' : '📱' }}
@@ -26,10 +26,24 @@
         {{ sub.enabled ? '启用' : '暂停' }}
       </n-tag>
       <n-button-group size="small">
-        <n-button @click="checkNow(sub.id)">检查</n-button>
-        <n-button @click="toggleSub(sub)">{{ sub.enabled ? '暂停' : '启用' }}</n-button>
-        <n-button type="error" @click="deleteSub(sub.id)">删除</n-button>
+        <n-button @click.stop="checkNow(sub.id)">检查</n-button>
+        <n-button @click.stop="toggleSub(sub)">{{ sub.enabled ? '暂停' : '启用' }}</n-button>
+        <n-button type="error" @click.stop="deleteSub(sub.id)">删除</n-button>
       </n-button-group>
+      <!-- 展开的下载任务列表 -->
+      <div v-if="expandedSub === sub.id" class="sub-tasks">
+        <div v-if="subTasks.length" style="max-height: 300px; overflow-y: auto;">
+          <div v-for="t in subTasks" :key="t.id" class="sub-task-item">
+            <img v-if="t.thumbnail" :src="t.thumbnail" referrerpolicy="no-referrer" style="width: 48px; height: 28px; border-radius: 4px; object-fit: cover; flex-shrink: 0;" />
+            <div v-else style="width: 48px; height: 28px; background: var(--bg-hover); border-radius: 4px; flex-shrink: 0;"></div>
+            <div style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ t.title || '...' }}</div>
+            <n-tag size="tiny" :type="t.status === 'completed' ? 'success' : t.status === 'failed' ? 'error' : 'default'" round>
+              {{ t.codec || '' }} {{ t.status === 'completed' ? '✓' : t.status === 'failed' ? '✗' : '...' }}
+            </n-tag>
+          </div>
+        </div>
+        <div v-else style="text-align: center; padding: 16px; color: var(--text-muted); font-size: 13px;">暂无下载任务</div>
+      </div>
     </div>
 
     <n-empty v-if="!subscriptions.length" description="暂无订阅" />
@@ -81,6 +95,8 @@ const message = useMessage()
 const subscriptions = ref([])
 const showAdd = ref(false)
 const adding = ref(false)
+const expandedSub = ref(null)
+const subTasks = ref([])
 
 const newSub = ref({
   platform: 'youtube',
@@ -172,4 +188,48 @@ async function deleteSub(id) {
   subscriptions.value = subscriptions.value.filter(s => s.id !== id)
   message.success('已删除')
 }
+
+async function toggleExpand(id) {
+  if (expandedSub.value === id) {
+    expandedSub.value = null
+    return
+  }
+  expandedSub.value = id
+  try {
+    const res = await axios.get(`/api/subscription/${id}/tasks`)
+    subTasks.value = res.data
+  } catch (e) {
+    subTasks.value = []
+  }
+}
 </script>
+
+<style scoped>
+.sub-card {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.sub-tasks {
+  width: 100%;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.sub-task-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  .sub-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+</style>
