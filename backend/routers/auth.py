@@ -135,11 +135,19 @@ async def get_bili_qrcode():
     """获取B站登录二维码"""
     import aiohttp
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
-        ) as resp:
-            data = await resp.json()
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://www.bilibili.com/",
+    }
+
+    try:
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.get(
+                "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
+            ) as resp:
+                data = await resp.json(content_type=None)
+    except Exception as e:
+        raise HTTPException(500, f"请求B站API失败: {str(e)}")
 
     if data.get("code") != 0:
         raise HTTPException(500, f"获取B站二维码失败: {data}")
@@ -156,12 +164,17 @@ async def check_bili_qrcode(qrcode_key: str, db: AsyncSession = Depends(get_db))
     """检查B站扫码状态"""
     import aiohttp
 
-    async with aiohttp.ClientSession() as session:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://www.bilibili.com/",
+    }
+
+    async with aiohttp.ClientSession(headers=headers) as session:
         async with session.get(
             "https://passport.bilibili.com/x/passport-login/web/qrcode/poll",
             params={"qrcode_key": qrcode_key},
         ) as resp:
-            data = await resp.json()
+            data = await resp.json(content_type=None)
 
     qr_data = data.get("data", {})
     code = qr_data.get("code", -1)
