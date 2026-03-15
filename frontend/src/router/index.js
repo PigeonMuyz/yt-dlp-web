@@ -26,6 +26,11 @@ const routes = [
     redirect: '/tasks',
   },
   {
+    path: '/series',
+    name: 'Series',
+    component: () => import('../views/Series.vue'),
+  },
+  {
     path: '/subscriptions',
     name: 'Subscriptions',
     component: () => import('../views/Subscriptions.vue'),

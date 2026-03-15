@@ -160,3 +160,47 @@ class DownloadHistory(Base):
 
     subscription_id = Column(Integer, ForeignKey("subscriptions.id"), nullable=True)
     downloaded_at = Column(DateTime, default=func.now())
+
+
+class SeriesStatus(str, enum.Enum):
+    DRAFT = "draft"               # 编辑中
+    DOWNLOADING = "downloading"   # 下载中
+    COMPLETED = "completed"       # 全部完成
+    PARTIAL = "partial"           # 部分完成
+
+
+class ManualSeries(Base):
+    """手动剧集"""
+    __tablename__ = "manual_series"
+
+    id = Column(Integer, primary_key=True)
+    title = Column(String(500), nullable=False)
+    description = Column(Text, default="")
+    platform = Column(SAEnum(Platform), default=Platform.BILIBILI)
+    category = Column(String(100), default="剧集")  # 存储目录分类
+    season = Column(Integer, default=1)
+    poster_url = Column(String(500), default="")
+    status = Column(SAEnum(SeriesStatus), default=SeriesStatus.DRAFT)
+
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    episodes = relationship("SeriesEpisode", backref="series", order_by="SeriesEpisode.episode_number", cascade="all, delete-orphan")
+
+
+class SeriesEpisode(Base):
+    """剧集中的单集"""
+    __tablename__ = "series_episodes"
+
+    id = Column(Integer, primary_key=True)
+    series_id = Column(Integer, ForeignKey("manual_series.id"), nullable=False)
+    episode_number = Column(Integer, nullable=False)
+    video_url = Column(String(500), nullable=False)
+    title = Column(String(500), default="")
+    thumbnail = Column(String(500), default="")
+    duration = Column(Integer, default=0)
+
+    status = Column(SAEnum(TaskStatus), default=TaskStatus.PENDING)
+    download_task_id = Column(Integer, ForeignKey("download_tasks.id"), nullable=True)
+
+    created_at = Column(DateTime, default=func.now())

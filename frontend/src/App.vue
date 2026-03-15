@@ -38,6 +38,9 @@
         <router-link to="/tasks" class="nav-item" :class="{ active: $route.path === '/tasks' }" @click="sidebarOpen = false">
           <n-icon size="18" class="nav-icon"><ListOutline /></n-icon>任务列表
         </router-link>
+        <router-link to="/series" class="nav-item" :class="{ active: $route.path === '/series' }" @click="sidebarOpen = false">
+          <n-icon size="18" class="nav-icon"><TvOutline /></n-icon>我的剧集
+        </router-link>
       </div>
 
       <!-- 订阅管理 -->
@@ -81,6 +84,7 @@ import {
   GridOutline,
   CloudDownloadOutline,
   ListOutline,
+  TvOutline,
   NotificationsOutline,
   KeyOutline,
   SettingsOutline,

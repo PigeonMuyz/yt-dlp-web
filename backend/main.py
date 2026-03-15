@@ -191,12 +191,13 @@ async def get_task_stats():
 
 # ==================== 注册路由 ====================
 
-from routers import auth, download, subscription, task
+from routers import auth, download, subscription, task, series
 
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
 app.include_router(download.router, prefix="/api/download", tags=["下载"])
 app.include_router(subscription.router, prefix="/api/subscription", tags=["订阅"])
 app.include_router(task.router, prefix="/api/task", tags=["任务"])
+app.include_router(series.router, prefix="/api/series", tags=["剧集"])
 
 
 # ==================== 静态文件 + SPA Fallback ====================
