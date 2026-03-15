@@ -1,17 +1,17 @@
 """
 认证路由
 - 管理员登录 (JWT)
-- Google OAuth (空链接回调)
+- YouTube cookies.txt 导入
 - B站扫码登录
 """
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from jose import jwt
-from passlib.hash import bcrypt
+import bcrypt as bc
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+import os
 
 from database import get_db
 from models import User, AccountCookie, Platform
@@ -20,7 +20,7 @@ from config import settings
 router = APIRouter()
 
 ALGORITHM = "HS256"
-TOKEN_EXPIRE_HOURS = 24
+TOKEN_EXPIRE_HOURS = 72
 
 
 class LoginRequest(BaseModel):
@@ -28,13 +28,9 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class GoogleOAuthRequest(BaseModel):
-    redirect_url: str  # 用户粘贴的回调 URL
-
-
-class BiliQRResponse(BaseModel):
-    qr_url: str
-    qrcode_key: str
+class CookieTextRequest(BaseModel):
+    cookie_text: str
+    platform: str = "youtube"  # youtube / bilibili
 
 
 # ==================== 管理员登录 ====================
@@ -43,7 +39,7 @@ class BiliQRResponse(BaseModel):
 async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.username == req.username))
     user = result.scalar()
-    if not user or not bcrypt.verify(req.password, user.password_hash):
+    if not user or not bc.checkpw(req.password.encode(), user.password_hash.encode()):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     token = jwt.encode(
@@ -55,85 +51,81 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/me")
-async def get_me(db: AsyncSession = Depends(get_db)):
-    # TODO: 从 token 中提取用户信息
+async def get_me():
     return {"username": "admin"}
 
 
-# ==================== Google OAuth ====================
+# ==================== YouTube Cookies 导入 ====================
 
-@router.get("/google/url")
-async def get_google_oauth_url():
-    """生成 Google OAuth 授权 URL"""
-    if not settings.google_client_id:
-        raise HTTPException(400, "未配置 Google Client ID")
-
-    params = {
-        "client_id": settings.google_client_id,
-        "redirect_uri": settings.google_redirect_uri,
-        "response_type": "code",
-        "scope": "https://www.googleapis.com/auth/youtube.readonly",
-        "access_type": "offline",
-    }
-    import urllib.parse
-    url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
-    return {"url": url}
-
-
-@router.post("/google/callback")
-async def google_callback(req: GoogleOAuthRequest, db: AsyncSession = Depends(get_db)):
+@router.post("/youtube/cookies")
+async def import_youtube_cookies(req: CookieTextRequest, db: AsyncSession = Depends(get_db)):
     """
-    处理用户粘贴的回调 URL，提取 auth code
+    导入 YouTube cookies.txt 内容
+    用户从浏览器导出 Netscape 格式的 cookies.txt，粘贴文本
     """
-    import urllib.parse
-    import aiohttp
+    cookie_text = req.cookie_text.strip()
+    if not cookie_text:
+        raise HTTPException(400, "Cookie 内容不能为空")
 
-    # 从 URL 提取 code
-    parsed = urllib.parse.urlparse(req.redirect_url)
-    params = urllib.parse.parse_qs(parsed.query)
-    code = params.get("code", [None])[0]
+    # 验证格式（Netscape cookies.txt 格式）
+    lines = [l for l in cookie_text.split("\n") if l.strip() and not l.startswith("#")]
+    if not lines:
+        raise HTTPException(400, "无效的 cookies.txt 格式")
 
-    if not code:
-        # 尝试从 fragment 中提取
-        params = urllib.parse.parse_qs(parsed.fragment)
-        code = params.get("code", [None])[0]
+    # 保存到文件
+    cookies_dir = "/data/cookies"
+    os.makedirs(cookies_dir, exist_ok=True)
+    cookies_path = os.path.join(cookies_dir, "youtube_cookies.txt")
+    with open(cookies_path, "w") as f:
+        f.write(cookie_text)
 
-    if not code:
-        raise HTTPException(400, "无法从 URL 中提取授权码")
+    # 更新 settings
+    settings.youtube_cookies_file = cookies_path
+    settings.save_to_file()
 
-    # 用 code 换取 token
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "code": code,
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
-                "redirect_uri": settings.google_redirect_uri,
-                "grant_type": "authorization_code",
-            }
-        ) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                raise HTTPException(400, f"Google token 交换失败: {text}")
-            token_data = await resp.json()
-
-    # 保存 cookie 信息
+    # 保存到数据库
     cookie = AccountCookie(
         platform=Platform.YOUTUBE,
-        account_name="Google Account",
-        cookie_data="",  # YouTube cookie 通过 OAuth token 间接使用
-        extra_data={
-            "access_token": token_data.get("access_token"),
-            "refresh_token": token_data.get("refresh_token"),
-            "expires_in": token_data.get("expires_in"),
-        },
+        account_name="YouTube (cookies.txt)",
+        cookie_data=cookie_text[:500],  # 只存摘要
+        extra_data={"cookies_file": cookies_path, "lines": len(lines)},
         is_valid=True,
     )
     db.add(cookie)
     await db.commit()
 
-    return {"success": True, "message": "Google 账号绑定成功"}
+    return {"success": True, "message": f"YouTube cookies 已导入（{len(lines)} 条）"}
+
+
+@router.post("/youtube/cookies/upload")
+async def upload_youtube_cookies(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    """上传 cookies.txt 文件"""
+    content = await file.read()
+    cookie_text = content.decode("utf-8", errors="ignore")
+
+    # 保存到文件
+    cookies_dir = "/data/cookies"
+    os.makedirs(cookies_dir, exist_ok=True)
+    cookies_path = os.path.join(cookies_dir, "youtube_cookies.txt")
+    with open(cookies_path, "w") as f:
+        f.write(cookie_text)
+
+    settings.youtube_cookies_file = cookies_path
+    settings.save_to_file()
+
+    lines = [l for l in cookie_text.split("\n") if l.strip() and not l.startswith("#")]
+
+    cookie = AccountCookie(
+        platform=Platform.YOUTUBE,
+        account_name="YouTube (cookies.txt)",
+        cookie_data=f"文件上传: {file.filename}",
+        extra_data={"cookies_file": cookies_path, "lines": len(lines)},
+        is_valid=True,
+    )
+    db.add(cookie)
+    await db.commit()
+
+    return {"success": True, "message": f"YouTube cookies 文件已上传（{len(lines)} 条）"}
 
 
 # ==================== B站扫码登录 ====================
@@ -150,7 +142,7 @@ async def get_bili_qrcode():
             data = await resp.json()
 
     if data.get("code") != 0:
-        raise HTTPException(500, "获取B站二维码失败")
+        raise HTTPException(500, f"获取B站二维码失败: {data}")
 
     qr_data = data["data"]
     return {
@@ -170,27 +162,38 @@ async def check_bili_qrcode(qrcode_key: str, db: AsyncSession = Depends(get_db))
             params={"qrcode_key": qrcode_key},
         ) as resp:
             data = await resp.json()
-            # 从响应头获取 cookie
-            cookies = resp.cookies
 
     qr_data = data.get("data", {})
     code = qr_data.get("code", -1)
 
     if code == 0:
-        # 登录成功，保存 cookie
+        # 登录成功
         url = qr_data.get("url", "")
-        # 提取 SESSDATA 等 cookie
         import urllib.parse
         parsed = urllib.parse.urlparse(url)
         params = urllib.parse.parse_qs(parsed.query)
-
         cookie_str = "; ".join(f"{k}={v[0]}" for k, v in params.items() if v)
+
+        # 保存 cookies 文件（Netscape 格式）
+        cookies_dir = "/data/cookies"
+        os.makedirs(cookies_dir, exist_ok=True)
+        cookies_path = os.path.join(cookies_dir, "bilibili_cookies.txt")
+
+        # 写 Netscape cookies.txt 格式
+        with open(cookies_path, "w") as f:
+            f.write("# Netscape HTTP Cookie File\n")
+            for k, v in params.items():
+                if v:
+                    f.write(f".bilibili.com\tTRUE\t/\tFALSE\t0\t{k}\t{v[0]}\n")
+
+        settings.bilibili_cookies_file = cookies_path
+        settings.save_to_file()
 
         cookie = AccountCookie(
             platform=Platform.BILIBILI,
             account_name="B站账号",
-            cookie_data=cookie_str,
-            extra_data=dict(params),
+            cookie_data=cookie_str[:500],
+            extra_data={"cookies_file": cookies_path},
             is_valid=True,
         )
         db.add(cookie)
@@ -203,6 +206,39 @@ async def check_bili_qrcode(qrcode_key: str, db: AsyncSession = Depends(get_db))
         return {"status": "scanned", "message": "已扫码，等待确认"}
     else:
         return {"status": "waiting", "message": "等待扫码"}
+
+
+# ==================== B站 Cookies 导入 ====================
+
+@router.post("/bilibili/cookies")
+async def import_bilibili_cookies(req: CookieTextRequest, db: AsyncSession = Depends(get_db)):
+    """直接粘贴 B站 cookies.txt"""
+    cookie_text = req.cookie_text.strip()
+    if not cookie_text:
+        raise HTTPException(400, "Cookie 内容不能为空")
+
+    cookies_dir = "/data/cookies"
+    os.makedirs(cookies_dir, exist_ok=True)
+    cookies_path = os.path.join(cookies_dir, "bilibili_cookies.txt")
+    with open(cookies_path, "w") as f:
+        f.write(cookie_text)
+
+    settings.bilibili_cookies_file = cookies_path
+    settings.save_to_file()
+
+    lines = [l for l in cookie_text.split("\n") if l.strip() and not l.startswith("#")]
+
+    cookie = AccountCookie(
+        platform=Platform.BILIBILI,
+        account_name="B站 (cookies.txt)",
+        cookie_data=cookie_text[:500],
+        extra_data={"cookies_file": cookies_path, "lines": len(lines)},
+        is_valid=True,
+    )
+    db.add(cookie)
+    await db.commit()
+
+    return {"success": True, "message": f"B站 cookies 已导入（{len(lines)} 条）"}
 
 
 # ==================== Cookie 管理 ====================

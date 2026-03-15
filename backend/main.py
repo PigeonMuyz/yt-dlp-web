@@ -20,22 +20,66 @@ import redis.asyncio as redis
 redis_client: redis.Redis = None
 
 
+async def auto_initialize():
+    """
+    自动初始化：
+    - 如果环境变量中已提供 PG/Redis 信息，自动连接并创建表
+    - 如果没有管理员账号，自动创建默认管理员
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+    from models import Base, User
+    import bcrypt as bc
+    from sqlalchemy import select
+
+    # 生成 secret_key
+    if settings.secret_key == "change-me-on-first-run":
+        settings.secret_key = secrets.token_hex(32)
+
+    # 初始化数据库表
+    await init_db()
+
+    # 创建默认管理员（如果不存在）
+    from database import async_session
+    async with async_session() as session:
+        existing = await session.execute(select(User).where(User.username == "admin"))
+        if not existing.scalar():
+            default_password = os.environ.get("YTDLP_ADMIN_PASSWORD", "admin123")
+            admin = User(
+                username="admin",
+                password_hash=bc.hashpw(default_password.encode(), bc.gensalt()).decode(),
+                is_admin=True,
+            )
+            session.add(admin)
+            await session.commit()
+            print(f"✅ 已创建管理员账号 admin（密码: {default_password}）")
+
+    # 保存配置
+    settings.save_to_file()
+    print("✅ 自动初始化完成")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """启动和关闭"""
     global redis_client
 
-    if settings.is_initialized():
-        # 初始化数据库
-        await init_db()
+    try:
+        # 自动初始化数据库
+        await auto_initialize()
+
         # 连接 Redis
         redis_client = redis.from_url(settings.redis_dsn, decode_responses=True)
+        await redis_client.ping()
+        print("✅ Redis 连接成功")
+
         # 启动调度器
         from services.scheduler import start_scheduler
         start_scheduler()
+
         print("✅ 服务启动完成")
-    else:
-        print("⚠️  首次启动，请访问 /api/setup 进行初始化配置")
+    except Exception as e:
+        print(f"⚠️  启动异常: {e}")
+        print("⚠️  部分功能可能不可用，请检查 PG/Redis 连接")
 
     yield
 
@@ -60,25 +104,22 @@ app.add_middleware(
 )
 
 
-# ==================== 初始化 API ====================
+# ==================== 状态 API ====================
 
 @app.get("/api/status")
 async def get_status():
     """获取系统状态"""
-    initialized = settings.is_initialized()
-    db_ok = False
+    db_ok = await check_db_connection()
     redis_ok = False
-
-    if initialized:
-        db_ok = await check_db_connection()
-        try:
+    try:
+        if redis_client:
             await redis_client.ping()
             redis_ok = True
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     return {
-        "initialized": initialized,
+        "initialized": True,
         "database": db_ok,
         "redis": redis_ok,
         "version": "1.0.0",
@@ -87,109 +128,20 @@ async def get_status():
 
 @app.post("/api/setup")
 async def setup(request: Request):
-    """
-    首次初始化配置
-    接收 PostgreSQL 和 Redis 连接信息
-    """
+    """更新配置（可在设置页调用）"""
     data = await request.json()
 
-    # 更新配置
-    if "db_host" in data:
-        settings.db_host = data["db_host"]
-    if "db_port" in data:
-        settings.db_port = int(data["db_port"])
-    if "db_name" in data:
-        settings.db_name = data["db_name"]
-    if "db_user" in data:
-        settings.db_user = data["db_user"]
-    if "db_password" in data:
-        settings.db_password = data["db_password"]
-    if "database_url" in data:
-        settings.database_url = data["database_url"]
+    for key in ["db_host", "db_port", "db_name", "db_user", "db_password",
+                "redis_host", "redis_port", "redis_db", "redis_password",
+                "download_dir", "proxy", "emby_url", "emby_api_key"]:
+        if key in data and data[key]:
+            val = data[key]
+            if key in ("db_port", "redis_port", "redis_db"):
+                val = int(val)
+            setattr(settings, key, val)
 
-    if "redis_host" in data:
-        settings.redis_host = data["redis_host"]
-    if "redis_port" in data:
-        settings.redis_port = int(data["redis_port"])
-    if "redis_db" in data:
-        settings.redis_db = int(data.get("redis_db", 0))
-    if "redis_password" in data:
-        settings.redis_password = data["redis_password"]
-    if "redis_url" in data:
-        settings.redis_url = data["redis_url"]
-
-    if "download_dir" in data:
-        settings.download_dir = data["download_dir"]
-    if "proxy" in data:
-        settings.proxy = data["proxy"]
-    if "emby_url" in data:
-        settings.emby_url = data["emby_url"]
-    if "emby_api_key" in data:
-        settings.emby_api_key = data["emby_api_key"]
-
-    # 生成 secret key
-    if settings.secret_key == "change-me-on-first-run":
-        settings.secret_key = secrets.token_hex(32)
-
-    # 设置管理员密码
-    admin_password = data.get("admin_password", "")
-    if not admin_password:
-        return JSONResponse({"error": "请设置管理员密码"}, status_code=400)
-
-    # 测试连接
-    from database import engine
-    from sqlalchemy.ext.asyncio import create_async_engine
-    test_engine = create_async_engine(settings.pg_url)
-    try:
-        async with test_engine.connect() as conn:
-            from sqlalchemy import text
-            await conn.execute(text("SELECT 1"))
-    except Exception as e:
-        return JSONResponse({"error": f"数据库连接失败: {str(e)}"}, status_code=400)
-    finally:
-        await test_engine.dispose()
-
-    # 测试 Redis
-    try:
-        test_redis = redis.from_url(settings.redis_dsn, decode_responses=True)
-        await test_redis.ping()
-        await test_redis.close()
-    except Exception as e:
-        return JSONResponse({"error": f"Redis 连接失败: {str(e)}"}, status_code=400)
-
-    # 保存配置
     settings.save_to_file()
-
-    # 初始化数据库表
-    init_engine = create_async_engine(settings.pg_url)
-    from models import Base
-    async with init_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await init_engine.dispose()
-
-    # 创建管理员账号
-    from passlib.hash import bcrypt
-    from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
-    init_engine2 = create_async_engine(settings.pg_url)
-    session_factory = async_sessionmaker(init_engine2, class_=AsyncSession)
-    async with session_factory() as session:
-        from models import User
-        from sqlalchemy import select
-        existing = await session.execute(select(User).where(User.username == "admin"))
-        if not existing.scalar():
-            admin = User(
-                username="admin",
-                password_hash=bcrypt.hash(admin_password),
-                is_admin=True,
-            )
-            session.add(admin)
-            await session.commit()
-    await init_engine2.dispose()
-
-    return {
-        "success": True,
-        "message": "初始化完成！请重启服务。",
-    }
+    return {"success": True, "message": "配置已更新，部分设置需要重启后生效"}
 
 
 # ==================== 注册路由 ====================
@@ -204,7 +156,6 @@ app.include_router(task.router, prefix="/api/task", tags=["任务"])
 
 # ==================== 静态文件 ====================
 
-# 生产模式下提供前端静态文件
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.exists(frontend_dist):
     app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
