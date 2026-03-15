@@ -2,11 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
   {
-    path: '/setup',
-    name: 'Setup',
-    component: () => import('../views/Setup.vue'),
-  },
-  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/Login.vue'),
@@ -22,14 +17,24 @@ const routes = [
     component: () => import('../views/Download.vue'),
   },
   {
+    path: '/tasks',
+    name: 'Tasks',
+    component: () => import('../views/Tasks.vue'),
+  },
+  {
+    path: '/history',
+    name: 'History',
+    component: () => import('../views/Tasks.vue'),  // 复用 Tasks 视图，后续可拆分
+  },
+  {
     path: '/subscriptions',
     name: 'Subscriptions',
     component: () => import('../views/Subscriptions.vue'),
   },
   {
-    path: '/tasks',
-    name: 'Tasks',
-    component: () => import('../views/Tasks.vue'),
+    path: '/accounts',
+    name: 'Accounts',
+    component: () => import('../views/Accounts.vue'),
   },
   {
     path: '/settings',

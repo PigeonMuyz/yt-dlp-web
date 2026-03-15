@@ -126,22 +126,63 @@ async def get_status():
     }
 
 
-@app.post("/api/setup")
-async def setup(request: Request):
-    """更新配置（可在设置页调用）"""
+# ==================== 设置 API ====================
+
+@app.get("/api/settings")
+async def get_settings():
+    """获取当前设置"""
+    return {
+        "proxy": settings.proxy,
+        "download_dir": settings.download_dir,
+        "default_resolution": getattr(settings, "default_resolution", "1080p"),
+        "emby_url": settings.emby_url,
+        "emby_api_key": settings.emby_api_key,
+        "env_proxy": os.environ.get("YTDLP_PROXY", ""),
+    }
+
+
+@app.post("/api/settings")
+async def update_settings(request: Request):
+    """更新配置"""
     data = await request.json()
 
-    for key in ["db_host", "db_port", "db_name", "db_user", "db_password",
-                "redis_host", "redis_port", "redis_db", "redis_password",
-                "download_dir", "proxy", "emby_url", "emby_api_key"]:
-        if key in data and data[key]:
-            val = data[key]
-            if key in ("db_port", "redis_port", "redis_db"):
-                val = int(val)
-            setattr(settings, key, val)
+    for key in ["download_dir", "proxy", "emby_url", "emby_api_key", "default_resolution"]:
+        if key in data:
+            setattr(settings, key, data[key])
 
     settings.save_to_file()
-    return {"success": True, "message": "配置已更新，部分设置需要重启后生效"}
+    return {"success": True, "message": "配置已更新"}
+
+
+# ==================== 统计 API ====================
+
+@app.get("/api/task/stats")
+async def get_task_stats():
+    """获取任务统计"""
+    from database import async_session
+    from models import DownloadTask, Subscription, TaskStatus
+    from sqlalchemy import select, func
+
+    async with async_session() as db:
+        downloading = (await db.execute(
+            select(func.count()).where(DownloadTask.status == TaskStatus.DOWNLOADING)
+        )).scalar() or 0
+        completed = (await db.execute(
+            select(func.count()).where(DownloadTask.status == TaskStatus.COMPLETED)
+        )).scalar() or 0
+        failed = (await db.execute(
+            select(func.count()).where(DownloadTask.status == TaskStatus.FAILED)
+        )).scalar() or 0
+        subs = (await db.execute(
+            select(func.count()).select_from(Subscription)
+        )).scalar() or 0
+
+    return {
+        "subscriptions": subs,
+        "downloading": downloading,
+        "completed": completed,
+        "failed": failed,
+    }
 
 
 # ==================== 注册路由 ====================
