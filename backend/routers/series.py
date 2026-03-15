@@ -45,6 +45,13 @@ class UpdateEpisodeRequest(BaseModel):
     episode_number: int = 0
 
 
+class UpdateSeriesRequest(BaseModel):
+    title: str = ""
+    description: str = ""
+    poster_url: str = ""
+    season: int = 0
+
+
 # ---------- Series CRUD ----------
 
 @router.post("")
@@ -132,6 +139,25 @@ async def delete_series(series_id: int, db: AsyncSession = Depends(get_db)):
     if not s:
         raise HTTPException(404, "剧集不存在")
     await db.delete(s)
+    await db.commit()
+    return {"success": True}
+
+
+@router.put("/{series_id}")
+async def update_series(series_id: int, req: UpdateSeriesRequest, db: AsyncSession = Depends(get_db)):
+    """更新剧集信息"""
+    result = await db.execute(select(ManualSeries).where(ManualSeries.id == series_id))
+    s = result.scalar()
+    if not s:
+        raise HTTPException(404, "剧集不存在")
+    if req.title:
+        s.title = req.title
+    if req.description is not None:
+        s.description = req.description
+    if req.poster_url is not None:
+        s.poster_url = req.poster_url
+    if req.season > 0:
+        s.season = req.season
     await db.commit()
     return {"success": True}
 
