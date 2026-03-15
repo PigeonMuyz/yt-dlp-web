@@ -78,8 +78,16 @@ async def create_subscription(req: SubCreate, db: AsyncSession = Depends(get_db)
             if req.platform == "bilibili":
                 cookies = settings.bilibili_cookies_file
             info = extract_flat(req.url, proxy=settings.proxy, cookies_file=cookies)
-            name = info.get("title", "") or info.get("uploader", "") or "未命名"
+            name = info.get("title", "") or info.get("uploader", "") or info.get("channel", "") or "未命名"
+            # 尝试多种方式获取频道缩略图
             thumbnail = info.get("thumbnail", "")
+            if not thumbnail:
+                # 从 thumbnails 列表取最后一个（通常是最高质量）
+                thumbs = info.get("thumbnails", [])
+                if thumbs:
+                    thumbnail = thumbs[-1].get("url", "")
+            if not thumbnail:
+                thumbnail = info.get("channel_url", "")  # 留作前端 fallback 标识
         except Exception:
             name = req.url
 

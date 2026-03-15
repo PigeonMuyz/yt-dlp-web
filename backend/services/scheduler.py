@@ -340,7 +340,7 @@ async def check_subscriptions():
 async def _check_single_subscription(sub_id: int):
     """检查单个订阅的新视频"""
     from database import async_session
-    from models import Subscription, DownloadTask, TaskStatus
+    from models import Subscription, DownloadTask, TaskStatus, CodecStrategy, Platform
     from services.downloader import extract_flat
     from config import settings
     from sqlalchemy import select
@@ -389,19 +389,32 @@ async def _check_single_subscription(sub_id: int):
                     else:
                         url = f"https://www.bilibili.com/video/{vid}"
 
-                task = DownloadTask(
-                    platform=sub.platform,
-                    video_url=url,
-                    video_id=vid,
-                    title=entry.get("title", ""),
-                    codec=sub.preferred_codec,
-                    resolution=sub.max_resolution,
-                    status=TaskStatus.PENDING,
-                    subscription_id=sub.id,
-                )
-                db.add(task)
+                # 根据编码策略确定要下载的编码列表
+                if sub.codec_strategy == CodecStrategy.DUAL:
+                    if sub.platform == Platform.YOUTUBE:
+                        codecs = ["vp9", "av1"]
+                    else:  # bilibili
+                        codecs = ["hevc", "av1"]
+                elif sub.codec_strategy == CodecStrategy.SINGLE:
+                    codecs = [sub.preferred_codec] if sub.preferred_codec else [""]
+                else:  # ALL
+                    codecs = ["vp9", "av1", "h264"] if sub.platform == Platform.YOUTUBE else ["hevc", "av1", "h264"]
+
+                for codec in codecs:
+                    task = DownloadTask(
+                        platform=sub.platform,
+                        video_url=url,
+                        video_id=vid,
+                        title=entry.get("title", ""),
+                        codec=codec,
+                        resolution=sub.max_resolution,
+                        status=TaskStatus.PENDING,
+                        subscription_id=sub.id,
+                    )
+                    db.add(task)
+                    new_count += 1
+
                 archive.add(vid)
-                new_count += 1
 
             sub.download_archive = "\n".join(archive)
             sub.last_checked = datetime.utcnow()
