@@ -134,7 +134,7 @@ async def get_settings():
     return {
         "proxy": settings.proxy,
         "download_dir": settings.download_dir,
-        "default_resolution": getattr(settings, "default_resolution", "1080p"),
+        "default_resolution": settings.default_resolution,
         "dir_videos": settings.dir_videos,
         "dir_series": settings.dir_series,
         "dir_collections": settings.dir_collections,

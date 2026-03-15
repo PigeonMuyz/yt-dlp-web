@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     download_dir: str = "/media"
     max_concurrent_downloads: int = 3
     proxy: str = ""
+    default_resolution: str = "1080p"
 
     # 下载目录分类
     dir_videos: str = "单品"        # 单个视频，走电影 NFO
@@ -98,12 +99,16 @@ class Settings(BaseSettings):
             "google_client_secret": self.google_client_secret,
             "emby_url": self.emby_url,
             "emby_api_key": self.emby_api_key,
+            "tmdb_api_key": self.tmdb_api_key,
             "download_dir": self.download_dir,
             "max_concurrent_downloads": self.max_concurrent_downloads,
             "proxy": self.proxy,
+            "default_resolution": self.default_resolution,
             "dir_videos": self.dir_videos,
             "dir_series": self.dir_series,
             "dir_collections": self.dir_collections,
+            "youtube_cookies_file": self.youtube_cookies_file,
+            "bilibili_cookies_file": self.bilibili_cookies_file,
             "secret_key": self.secret_key,
         }
         os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
