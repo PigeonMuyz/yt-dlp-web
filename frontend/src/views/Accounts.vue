@@ -124,19 +124,31 @@
 
           <!-- Cookie 粘贴 -->
           <div v-else>
-            <n-alert type="info" style="margin-bottom: 16px; border-radius: 10px;">
+            <n-alert type="info" style="margin-bottom: 16px; border-radius: 10px;" :show-icon="false">
               <template v-if="selectedPlatform === 'youtube'">
-                使用浏览器扩展（如 <strong>Get cookies.txt LOCALLY</strong>）导出 YouTube 的 cookies.txt 文件内容，粘贴至下方。
+                <div style="font-weight: 600; margin-bottom: 8px;">如何获取 YouTube Cookies</div>
+                <ol style="margin: 0; padding-left: 20px; line-height: 1.8; font-size: 13px;">
+                  <li>在 Chrome 中安装扩展 <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" style="color: var(--primary); font-weight: 600;">Get cookies.txt LOCALLY</a></li>
+                  <li>打开 <a href="https://www.youtube.com" target="_blank" style="color: var(--primary);">youtube.com</a> 并<strong>确认已登录</strong></li>
+                  <li>点击扩展图标 → 点击 <strong>「Export」</strong> 按钮</li>
+                  <li>将导出的 <strong>全部内容</strong> 粘贴到下方输入框</li>
+                </ol>
               </template>
               <template v-else>
-                导出 Bilibili 的 cookies.txt 文件内容（Netscape 格式），粘贴至下方。
+                <div style="font-weight: 600; margin-bottom: 8px;">如何获取 Bilibili Cookies</div>
+                <ol style="margin: 0; padding-left: 20px; line-height: 1.8; font-size: 13px;">
+                  <li>在 Chrome 中安装扩展 <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" style="color: var(--primary); font-weight: 600;">Get cookies.txt LOCALLY</a></li>
+                  <li>打开 <a href="https://www.bilibili.com" target="_blank" style="color: var(--primary);">bilibili.com</a> 并<strong>确认已登录</strong></li>
+                  <li>点击扩展图标 → 点击 <strong>「Export」</strong> 按钮</li>
+                  <li>将导出的 <strong>全部内容</strong> 粘贴到下方输入框</li>
+                </ol>
               </template>
             </n-alert>
             <n-input
               v-model:value="cookieText"
               type="textarea"
               :rows="8"
-              placeholder="粘贴 cookies.txt 内容..."
+              placeholder="# Netscape HTTP Cookie File&#10;# 粘贴扩展导出的全部内容到这里..."
               style="font-family: monospace; font-size: 12px;"
             />
           </div>
