@@ -199,8 +199,27 @@ def download_video(
     os.makedirs(output_dir, exist_ok=True)
 
     with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        return ydl.sanitize_info(info)
+        try:
+            info = ydl.extract_info(url, download=True)
+        except yt_dlp.utils.DownloadError as e:
+            if "Requested format is not available" in str(e) and format_string != "bestvideo+bestaudio/best":
+                # 指定编码不可用 → 回退到最佳格式重试
+                opts["format"] = "bestvideo+bestaudio/best"
+                with yt_dlp.YoutubeDL(opts) as ydl2:
+                    info = ydl2.extract_info(url, download=True)
+            else:
+                raise
+
+        # yt-dlp 有时不抛异常而是返回 None（如 ignoreerrors 生效时）
+        if info is None and format_string != "bestvideo+bestaudio/best":
+            opts["format"] = "bestvideo+bestaudio/best"
+            with yt_dlp.YoutubeDL(opts) as ydl2:
+                info = ydl2.extract_info(url, download=True)
+
+        if info is None:
+            raise RuntimeError(f"下载失败: {url}")
+
+        return ydl.sanitize_info(info) if hasattr(ydl, 'sanitize_info') else info
 
 
 async def async_extract_info(url: str, **kwargs) -> dict:
