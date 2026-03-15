@@ -141,6 +141,8 @@ async def get_settings():
         "emby_url": settings.emby_url,
         "emby_api_key": settings.emby_api_key,
         "tmdb_api_key": settings.tmdb_api_key,
+        "dev_mode": settings.dev_mode,
+        "dev_max_items": settings.dev_max_items,
         "env_proxy": os.environ.get("YTDLP_PROXY", ""),
     }
 
@@ -151,7 +153,7 @@ async def update_settings(request: Request):
     data = await request.json()
 
     for key in ["download_dir", "proxy", "emby_url", "emby_api_key", "tmdb_api_key", "default_resolution",
-                "dir_videos", "dir_series", "dir_collections"]:
+                "dir_videos", "dir_series", "dir_collections", "dev_mode", "dev_max_items"]:
         if key in data:
             setattr(settings, key, data[key])
 

@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     youtube_cookies_file: str = ""
     bilibili_cookies_file: str = ""
 
+    # 开发者选项
+    dev_mode: bool = False
+    dev_max_items: int = 5  # 开发模式下订阅最多下载几个视频
+
     class Config:
         env_prefix = "YTDLP_"
         env_file = ".env"
@@ -109,6 +113,8 @@ class Settings(BaseSettings):
             "dir_collections": self.dir_collections,
             "youtube_cookies_file": self.youtube_cookies_file,
             "bilibili_cookies_file": self.bilibili_cookies_file,
+            "dev_mode": self.dev_mode,
+            "dev_max_items": self.dev_max_items,
             "secret_key": self.secret_key,
         }
         os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)

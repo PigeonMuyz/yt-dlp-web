@@ -372,6 +372,10 @@ async def _check_single_subscription(sub_id: int):
             entries = info.get("entries", [])
             archive = set(sub.download_archive.split("\n")) if sub.download_archive else set()
 
+            # 开发模式：限制最多处理 N 个视频
+            if settings.dev_mode:
+                entries = entries[:settings.dev_max_items]
+
             new_count = 0
             for entry in entries:
                 vid = entry.get("id", "")

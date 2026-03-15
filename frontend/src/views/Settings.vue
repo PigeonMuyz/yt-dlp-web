@@ -102,6 +102,28 @@
       <n-button type="primary" size="small" @click="saveTmdb">保存</n-button>
     </div>
 
+    <!-- 开发者选项 -->
+    <div class="card">
+      <div class="card-title">
+        <n-icon size="16" style="margin-right: 6px; vertical-align: -2px;"><CodeOutline /></n-icon>
+        开发者选项
+      </div>
+      <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+        启用后，订阅检查只获取最新的几个视频，方便测试功能而不会大量下载。
+      </p>
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+        <n-switch v-model:value="devMode" />
+        <span style="font-size: 14px;">{{ devMode ? '开发模式已启用' : '开发模式已关闭' }}</span>
+        <n-tag v-if="devMode" type="warning" size="small" round>测试中</n-tag>
+      </div>
+      <div v-if="devMode" style="margin-bottom: 12px;">
+        <n-form-item label="订阅最多下载视频数">
+          <n-input-number v-model:value="devMaxItems" :min="1" :max="50" style="width: 140px;" />
+        </n-form-item>
+      </div>
+      <n-button type="primary" size="small" @click="saveDev">保存</n-button>
+    </div>
+
     <!-- 系统信息 -->
     <div class="card">
       <div class="card-title">
@@ -113,6 +135,8 @@
         <div>v1.0.0</div>
         <div style="color: var(--text-secondary);">环境变量代理</div>
         <div><code>{{ envProxy || '未设置' }}</code></div>
+        <div style="color: var(--text-secondary);">开发模式</div>
+        <div><code>{{ devMode ? '启用' : '关闭' }}</code></div>
       </div>
     </div>
   </div>
@@ -131,6 +155,7 @@ import {
   AlbumsOutline,
   InformationCircleOutline,
   SearchOutline,
+  CodeOutline,
 } from '@vicons/ionicons5'
 
 const message = useMessage()
@@ -144,6 +169,8 @@ const dirCollections = ref('合集')
 const embyUrl = ref('')
 const embyApiKey = ref('')
 const tmdbApiKey = ref('')
+const devMode = ref(false)
+const devMaxItems = ref(5)
 const envProxy = ref('')
 
 const resolutionOptions = [
@@ -167,6 +194,8 @@ onMounted(async () => {
       embyUrl.value = res.data.emby_url || ''
       embyApiKey.value = res.data.emby_api_key || ''
       tmdbApiKey.value = res.data.tmdb_api_key || ''
+      devMode.value = res.data.dev_mode || false
+      devMaxItems.value = res.data.dev_max_items || 5
       envProxy.value = res.data.env_proxy || ''
     }
   } catch (e) { console.error(e) }
@@ -206,6 +235,13 @@ async function saveTmdb() {
   try {
     await axios.post('/api/settings', { tmdb_api_key: tmdbApiKey.value })
     message.success('TMDB 设置已保存')
+  } catch (e) { message.error('保存失败') }
+}
+
+async function saveDev() {
+  try {
+    await axios.post('/api/settings', { dev_mode: devMode.value, dev_max_items: devMaxItems.value })
+    message.success('开发者选项已保存')
   } catch (e) { message.error('保存失败') }
 }
 </script>
