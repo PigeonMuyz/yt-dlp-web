@@ -1,6 +1,9 @@
 """
 定时任务调度器
+所有 yt-dlp 同步调用通过 asyncio.to_thread 在线程池中执行，
+避免阻塞 asyncio 事件循环导致 Web UI 无响应。
 """
+import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 scheduler = AsyncIOScheduler()
@@ -14,6 +17,7 @@ def start_scheduler():
         seconds=5,
         id="download_queue",
         replace_existing=True,
+        max_instances=3,  # 允许并行下载
     )
     scheduler.add_job(
         check_subscriptions,
@@ -32,7 +36,7 @@ async def process_download_queue():
     from database import async_session
     from models import DownloadTask, DownloadHistory, TaskStatus, Platform
     from services.downloader import download_video, build_format_string, extract_info
-    from services.file_organizer import build_movie_path, ensure_dirs, get_codec_label
+    from services.file_organizer import build_movie_path, ensure_dirs
     from services.nfo_generator import generate_movie_nfo, save_nfo
     from services.subtitle_converter import convert_all_subtitles
     import json, os
@@ -56,12 +60,16 @@ async def process_download_queue():
             await db.commit()
 
             try:
-                # 获取视频信息
+                # 获取视频信息 —— 在线程池中执行！
                 cookies = settings.youtube_cookies_file
                 if task.platform == Platform.BILIBILI:
                     cookies = settings.bilibili_cookies_file
 
-                info = extract_info(task.video_url, proxy=settings.proxy, cookies_file=cookies)
+                info = await asyncio.to_thread(
+                    extract_info, task.video_url,
+                    proxy=settings.proxy, cookies_file=cookies
+                )
+
                 task.title = task.title or info.get("title", "")
                 task.video_id = info.get("id", "")
                 task.channel_name = info.get("uploader", "")
@@ -86,29 +94,28 @@ async def process_download_queue():
                 # 构建 format string
                 format_str = build_format_string(task.codec, task.resolution) if task.codec else "bestvideo+bestaudio/best"
 
-                # 进度回调
+                # 进度回调（在下载线程中调用）
                 def on_progress(data):
-                    import asyncio
                     progress_data = json.dumps(data)
-                    # 同步写 Redis
                     import redis as sync_redis
                     sr = sync_redis.from_url(settings.redis_dsn, decode_responses=True)
                     sr.set(f"task_progress:{task_id}", progress_data, ex=300)
                     sr.close()
 
-                # 下载
-                dl_info = download_video(
+                # 下载 —— 在线程池中执行！
+                dl_info = await asyncio.to_thread(
+                    download_video,
                     task.video_url,
                     output_path=paths["video"],
                     format_string=format_str,
-                    subtitle_langs=task.resolution or "zh-Hans,en,ja",
+                    subtitle_langs="zh-Hans,en,ja",
                     proxy=settings.proxy,
                     cookies_file=cookies,
                     progress_callback=on_progress,
                 )
 
-                # 转换字幕
-                convert_all_subtitles(paths["subtitle_dir"])
+                # 字幕转换 —— 在线程池中执行
+                await asyncio.to_thread(convert_all_subtitles, paths["subtitle_dir"])
 
                 # 生成 NFO
                 premiered = ""
@@ -186,13 +193,11 @@ async def check_subscriptions():
     r = aioredis.from_url(settings.redis_dsn, decode_responses=True)
 
     try:
-        # 检查是否有手动触发的检查
         sub_id = await r.lpop("check_subscription")
         if sub_id:
             await _check_single_subscription(int(sub_id))
             return
 
-        # 自动检查到期的订阅
         async with async_session() as db:
             now = datetime.utcnow()
             result = await db.execute(
@@ -239,9 +244,12 @@ async def _check_single_subscription(sub_id: int):
             if sub.platform.value == "bilibili":
                 cookies = settings.bilibili_cookies_file
 
-            # 获取视频列表
+            # 获取视频列表 —— 在线程池中执行！
             try:
-                info = extract_flat(sub.url, proxy=settings.proxy, cookies_file=cookies)
+                info = await asyncio.to_thread(
+                    extract_flat, sub.url,
+                    proxy=settings.proxy, cookies_file=cookies
+                )
             except Exception:
                 return
 
@@ -261,7 +269,6 @@ async def _check_single_subscription(sub_id: int):
                     else:
                         url = f"https://www.bilibili.com/video/{vid}"
 
-                # 创建下载任务
                 task = DownloadTask(
                     platform=sub.platform,
                     video_url=url,
@@ -276,12 +283,10 @@ async def _check_single_subscription(sub_id: int):
                 archive.add(vid)
                 new_count += 1
 
-            # 更新 archive 和 last_checked
             sub.download_archive = "\n".join(archive)
             sub.last_checked = datetime.utcnow()
             await db.commit()
 
-            # 新任务加入队列
             if new_count > 0:
                 result = await db.execute(
                     select(DownloadTask).where(

@@ -32,21 +32,25 @@ class DownloadRequest(BaseModel):
 @router.post("/parse")
 async def parse_url(req: ParseRequest):
     """解析视频 URL，返回视频信息和可用格式"""
+    import asyncio
     from services.downloader import extract_info, get_available_formats
 
+    # 判断平台和 cookie
+    cookies_file = settings.youtube_cookies_file
+    if "bilibili" in req.url or "b23.tv" in req.url:
+        cookies_file = settings.bilibili_cookies_file
+
     try:
-        info = extract_info(
-            req.url,
-            proxy=settings.proxy,
-            cookies_file=settings.youtube_cookies_file,
+        info = await asyncio.to_thread(
+            extract_info, req.url,
+            proxy=settings.proxy, cookies_file=cookies_file,
         )
     except Exception as e:
         raise HTTPException(400, f"解析失败: {str(e)}")
 
-    formats = get_available_formats(
-        req.url,
-        proxy=settings.proxy,
-        cookies_file=settings.youtube_cookies_file,
+    formats = await asyncio.to_thread(
+        get_available_formats, req.url,
+        proxy=settings.proxy, cookies_file=cookies_file,
     )
 
     # 判断平台
