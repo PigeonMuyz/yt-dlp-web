@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     dev_mode: bool = False
     dev_max_items: int = 5  # 开发模式下订阅最多下载几个视频
 
+    # GitHub 更新检查
+    github_repo: str = ""  # 格式: owner/repo
+
     class Config:
         env_prefix = "YTDLP_"
         env_file = ".env"

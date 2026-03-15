@@ -125,19 +125,27 @@
       <n-button size="small" style="margin-left: 8px;" @click="checkAllSubs" :loading="checkingAll">立即检查所有订阅</n-button>
     </div>
 
-    <!-- 系统信息 -->
+    <!-- 系统信息 & 更新 -->
     <div class="card">
       <div class="card-title">
         <n-icon size="16" style="margin-right: 6px; vertical-align: -2px;"><InformationCircleOutline /></n-icon>
-        系统信息
+        系统信息 & 更新
       </div>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
-        <div style="color: var(--text-secondary);">版本</div>
-        <div>v1.0.0</div>
+      <div style="display: grid; grid-template-columns: 120px 1fr; gap: 8px; font-size: 13px; align-items: center;">
+        <div style="color: var(--text-secondary);">当前版本</div>
+        <div><code>v{{ version }}</code></div>
         <div style="color: var(--text-secondary);">环境变量代理</div>
         <div><code>{{ envProxy || '未设置' }}</code></div>
-        <div style="color: var(--text-secondary);">开发模式</div>
-        <div><code>{{ devMode ? '启用' : '关闭' }}</code></div>
+        <div style="color: var(--text-secondary);">GitHub 仓库</div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <n-input v-model:value="githubRepo" placeholder="owner/repo" size="small" style="max-width: 240px;" />
+          <n-button size="small" @click="saveGitHub">保存</n-button>
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 16px; align-items: center;">
+        <n-button size="small" :loading="checkingUpdate" @click="checkUpdate">检查更新</n-button>
+        <n-button v-if="updateInfo.has_update" type="primary" size="small" :loading="updating" @click="doUpdate">🚀 一键更新到 v{{ updateInfo.latest }}</n-button>
+        <span v-if="updateInfo.message" style="font-size: 13px; color: var(--text-secondary);">{{ updateInfo.message }}</span>
       </div>
     </div>
   </div>
@@ -174,6 +182,11 @@ const devMode = ref(false)
 const devMaxItems = ref(5)
 const checkingAll = ref(false)
 const envProxy = ref('')
+const version = ref('1.0.0')
+const githubRepo = ref('')
+const checkingUpdate = ref(false)
+const updating = ref(false)
+const updateInfo = ref({ has_update: false, message: '' })
 
 const resolutionOptions = [
   { label: '最佳画质', value: 'best' },
@@ -199,6 +212,8 @@ onMounted(async () => {
       devMode.value = res.data.dev_mode || false
       devMaxItems.value = res.data.dev_max_items || 5
       envProxy.value = res.data.env_proxy || ''
+      version.value = res.data.version || '1.0.0'
+      githubRepo.value = res.data.github_repo || ''
     }
   } catch (e) { console.error(e) }
 })
@@ -254,5 +269,35 @@ async function checkAllSubs() {
     message.success(res.data.message)
   } catch (e) { message.error('触发失败') }
   finally { checkingAll.value = false }
+}
+
+async function saveGitHub() {
+  try {
+    await axios.post('/api/settings', { github_repo: githubRepo.value })
+    message.success('GitHub 仓库已保存')
+  } catch (e) { message.error('保存失败') }
+}
+
+async function checkUpdate() {
+  checkingUpdate.value = true
+  try {
+    const res = await axios.get('/api/check-update')
+    updateInfo.value = res.data
+    if (res.data.has_update) {
+      message.info(`发现新版本 v${res.data.latest}`)
+    } else {
+      message.success(res.data.message)
+    }
+  } catch (e) { message.error('检查失败') }
+  finally { checkingUpdate.value = false }
+}
+
+async function doUpdate() {
+  updating.value = true
+  try {
+    const res = await axios.post('/api/update')
+    message.success(res.data.message)
+  } catch (e) { message.error('更新失败') }
+  finally { updating.value = false }
 }
 </script>

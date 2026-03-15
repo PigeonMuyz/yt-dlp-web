@@ -172,6 +172,113 @@ async def thumb_proxy(url: str):
         return JSONResponse({"error": "proxy failed"}, 502)
 
 
+# ==================== 版本检查 ====================
+
+def _get_current_version():
+    """读取当前版本号"""
+    version_file = os.path.join(os.path.dirname(__file__), "..", "VERSION")
+    try:
+        with open(version_file) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return "1.0.0"
+
+
+@app.get("/api/check-update")
+async def check_update():
+    """检查 GitHub 是否有新版本"""
+    import httpx
+
+    current = _get_current_version()
+    repo = settings.github_repo
+    if not repo:
+        return {"current": current, "latest": current, "has_update": False, "message": "未配置 GitHub 仓库"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{repo}/releases/latest",
+                headers={"Accept": "application/vnd.github.v3+json"},
+            )
+            if resp.status_code == 404:
+                # 没有 release，尝试用 tags
+                resp = await client.get(
+                    f"https://api.github.com/repos/{repo}/tags",
+                    headers={"Accept": "application/vnd.github.v3+json"},
+                )
+                if resp.status_code == 200:
+                    tags = resp.json()
+                    latest = tags[0]["name"].lstrip("v") if tags else current
+                else:
+                    return {"current": current, "latest": current, "has_update": False, "message": "查询失败"}
+            elif resp.status_code == 200:
+                data = resp.json()
+                latest = data.get("tag_name", current).lstrip("v")
+            else:
+                return {"current": current, "latest": current, "has_update": False, "message": f"API {resp.status_code}"}
+
+        has_update = latest != current
+        return {
+            "current": current,
+            "latest": latest,
+            "has_update": has_update,
+            "message": f"新版本 {latest} 可用" if has_update else "已是最新版本",
+            "release_url": f"https://github.com/{repo}/releases" if has_update else "",
+        }
+    except Exception as e:
+        return {"current": current, "latest": current, "has_update": False, "message": f"检查失败: {e}"}
+
+
+@app.post("/api/update")
+async def trigger_update():
+    """触发一键更新：git pull + docker compose rebuild"""
+    import subprocess
+    import asyncio
+
+    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    async def _do_update():
+        try:
+            # git pull
+            proc = await asyncio.create_subprocess_exec(
+                "git", "pull", "--ff-only",
+                cwd=project_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            pull_msg = stdout.decode() + stderr.decode()
+
+            if proc.returncode != 0:
+                return {"success": False, "message": f"git pull 失败: {pull_msg}"}
+
+            # 前端重新构建
+            npm_proc = await asyncio.create_subprocess_exec(
+                "npm", "run", "build",
+                cwd=os.path.join(project_dir, "frontend"),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await npm_proc.communicate()
+
+            # docker compose rebuild
+            dc_proc = await asyncio.create_subprocess_exec(
+                "docker", "compose", "up", "-d", "--build",
+                cwd=project_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await dc_proc.communicate()
+
+            return {"success": True, "message": f"更新完成，容器已重建\n{pull_msg}"}
+        except Exception as e:
+            return {"success": False, "message": f"更新失败: {e}"}
+
+    # 在后台执行，立即返回
+    asyncio.create_task(_do_update())
+    return {"success": True, "message": "更新已触发，容器将在约 30 秒后重建"}
+
+
 # ==================== 设置 API ====================
 
 @app.get("/api/settings")
@@ -189,7 +296,9 @@ async def get_settings():
         "tmdb_api_key": settings.tmdb_api_key,
         "dev_mode": settings.dev_mode,
         "dev_max_items": settings.dev_max_items,
+        "github_repo": settings.github_repo,
         "env_proxy": os.environ.get("YTDLP_PROXY", ""),
+        "version": _get_current_version(),
     }
 
 
@@ -199,7 +308,7 @@ async def update_settings(request: Request):
     data = await request.json()
 
     for key in ["download_dir", "proxy", "emby_url", "emby_api_key", "tmdb_api_key", "default_resolution",
-                "dir_videos", "dir_series", "dir_collections", "dev_mode", "dev_max_items"]:
+                "dir_videos", "dir_series", "dir_collections", "dev_mode", "dev_max_items", "github_repo"]:
         if key in data:
             setattr(settings, key, data[key])
 
