@@ -33,14 +33,20 @@ async def list_tasks(
             "platform": t.platform.value,
             "title": t.title,
             "video_url": t.video_url,
+            "thumbnail": t.thumbnail,
+            "channel_name": t.channel_name,
             "codec": t.codec,
             "resolution": t.resolution,
+            "file_size": t.file_size,
+            "duration": t.duration,
+            "output_path": t.output_path,
             "status": t.status.value,
             "progress": t.progress,
             "speed": t.speed,
             "eta": t.eta,
             "error_msg": t.error_msg,
             "created_at": t.created_at.isoformat() if t.created_at else "",
+            "completed_at": t.completed_at.isoformat() if t.completed_at else "",
         }
         for t in tasks
     ]

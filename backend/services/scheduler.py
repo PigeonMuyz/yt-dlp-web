@@ -78,6 +78,26 @@ async def process_download_queue():
                 task.duration = info.get("duration", 0)
                 task.description = info.get("description", "")
                 task.thumbnail = info.get("thumbnail", "")
+
+                # 自动提取编码和分辨率（如果用户未指定）
+                if not task.codec:
+                    vcodec = info.get("vcodec", "")
+                    if vcodec and vcodec != "none":
+                        if "av01" in vcodec or "av1" in vcodec:
+                            task.codec = "av1"
+                        elif "vp9" in vcodec or "vp09" in vcodec:
+                            task.codec = "vp9"
+                        elif "avc" in vcodec or "h264" in vcodec:
+                            task.codec = "h264"
+                        elif "hev" in vcodec or "h265" in vcodec or "hevc" in vcodec:
+                            task.codec = "hevc"
+                        else:
+                            task.codec = vcodec.split(".")[0]
+                if not task.resolution:
+                    height = info.get("height", 0)
+                    if height:
+                        task.resolution = f"{height}p"
+
                 await db.commit()
 
                 # 构建路径
@@ -139,9 +159,11 @@ async def process_download_queue():
                 save_nfo(nfo_content, paths["nfo"])
 
                 # 更新任务状态
+                actual_size = os.path.getsize(paths["video"]) if os.path.exists(paths["video"]) else 0
                 task.status = TaskStatus.COMPLETED
                 task.progress = 100
                 task.output_path = paths["video"]
+                task.file_size = actual_size
                 task.completed_at = datetime.utcnow()
                 await db.commit()
 

@@ -135,6 +135,9 @@ async def get_settings():
         "proxy": settings.proxy,
         "download_dir": settings.download_dir,
         "default_resolution": getattr(settings, "default_resolution", "1080p"),
+        "dir_videos": settings.dir_videos,
+        "dir_series": settings.dir_series,
+        "dir_collections": settings.dir_collections,
         "emby_url": settings.emby_url,
         "emby_api_key": settings.emby_api_key,
         "env_proxy": os.environ.get("YTDLP_PROXY", ""),
@@ -146,7 +149,8 @@ async def update_settings(request: Request):
     """更新配置"""
     data = await request.json()
 
-    for key in ["download_dir", "proxy", "emby_url", "emby_api_key", "default_resolution"]:
+    for key in ["download_dir", "proxy", "emby_url", "emby_api_key", "default_resolution",
+                "dir_videos", "dir_series", "dir_collections"]:
         if key in data:
             setattr(settings, key, data[key])
 

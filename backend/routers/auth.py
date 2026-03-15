@@ -202,17 +202,34 @@ async def check_bili_qrcode(qrcode_key: str, db: AsyncSession = Depends(get_db))
         settings.bilibili_cookies_file = cookies_path
         settings.save_to_file()
 
+        # 获取 B站真实用户名和头像
+        account_name = "B站账号"
+        avatar_url = ""
+        try:
+            async with aiohttp.ClientSession(headers=headers) as session2:
+                async with session2.get(
+                    "https://api.bilibili.com/x/web-interface/nav",
+                    headers={"Cookie": cookie_str},
+                ) as nav_resp:
+                    nav_data = await nav_resp.json(content_type=None)
+                    if nav_data.get("code") == 0:
+                        nav_info = nav_data.get("data", {})
+                        account_name = nav_info.get("uname", "B站账号")
+                        avatar_url = nav_info.get("face", "")
+        except Exception:
+            pass  # 获取失败不影响登录
+
         cookie = AccountCookie(
             platform=Platform.BILIBILI,
-            account_name="B站账号",
+            account_name=account_name,
             cookie_data=cookie_str[:500],
-            extra_data={"cookies_file": cookies_path},
+            extra_data={"cookies_file": cookies_path, "avatar": avatar_url},
             is_valid=True,
         )
         db.add(cookie)
         await db.commit()
 
-        return {"status": "success", "message": "B站登录成功"}
+        return {"status": "success", "message": f"B站登录成功，欢迎 {account_name}"}
     elif code == 86038:
         return {"status": "expired", "message": "二维码已过期"}
     elif code == 86090:
@@ -267,6 +284,7 @@ async def list_cookies(db: AsyncSession = Depends(get_db)):
             "platform": c.platform.value,
             "account_name": c.account_name,
             "is_valid": c.is_valid,
+            "avatar": (c.extra_data or {}).get("avatar", ""),
             "created_at": c.created_at.isoformat() if c.created_at else "",
         }
         for c in cookies

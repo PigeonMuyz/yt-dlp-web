@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     max_concurrent_downloads: int = 3
     proxy: str = ""
 
+    # 下载目录分类
+    dir_videos: str = "单品"        # 单个视频，走电影 NFO
+    dir_series: str = "剧集"        # 连续追番/剧集，走电视剧 NFO
+    dir_collections: str = "合集"   # 合集/播放列表
+
     # yt-dlp Cookie 文件
     youtube_cookies_file: str = ""
     bilibili_cookies_file: str = ""
@@ -93,6 +98,9 @@ class Settings(BaseSettings):
             "download_dir": self.download_dir,
             "max_concurrent_downloads": self.max_concurrent_downloads,
             "proxy": self.proxy,
+            "dir_videos": self.dir_videos,
+            "dir_series": self.dir_series,
+            "dir_collections": self.dir_collections,
             "secret_key": self.secret_key,
         }
         os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
