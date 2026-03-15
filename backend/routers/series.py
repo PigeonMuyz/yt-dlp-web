@@ -293,7 +293,6 @@ async def download_series(series_id: int, db: AsyncSession = Depends(get_db)):
     - 未下载过的视频：创建下载任务
     """
     import os
-    import shutil
     import redis.asyncio as aioredis
     from models import DownloadHistory
     from services.file_organizer import build_tvshow_path, ensure_dirs, sanitize_filename
@@ -317,47 +316,85 @@ async def download_series(series_id: int, db: AsyncSession = Depends(get_db)):
 
     try:
         for ep in pending_eps:
-            # 1. 检查是否已经下载过（通过 video_url 匹配 DownloadHistory）
-            history_result = await db.execute(
-                select(DownloadHistory).where(DownloadHistory.video_url == ep.video_url)
-            )
-            existing = history_result.scalar()
+            # ---- 检查是否已经下载过 ----
+            # 方式1：关联的旧 DownloadTask 已完成
+            existing_file = None
+            existing_codec = ""
+            existing_channel = ""
+            existing_video_id = ""
 
-            if existing and existing.file_path and os.path.exists(existing.file_path):
-                # 已下载 → 移动文件到剧集目录
-                ext = os.path.splitext(existing.file_path)[1] or ".mp4"
+            if ep.download_task_id:
+                task_result = await db.execute(
+                    select(DownloadTask).where(DownloadTask.id == ep.download_task_id)
+                )
+                old_task = task_result.scalar()
+                if old_task and old_task.status == TaskStatus.COMPLETED and old_task.output_path:
+                    # 尝试找到实际文件（路径可能不完全匹配）
+                    if os.path.exists(old_task.output_path):
+                        existing_file = old_task.output_path
+                    else:
+                        # 扫描同目录查找视频文件
+                        task_dir = os.path.dirname(old_task.output_path)
+                        if os.path.isdir(task_dir):
+                            for f in os.listdir(task_dir):
+                                if f.endswith(('.mp4', '.webm', '.mkv')):
+                                    existing_file = os.path.join(task_dir, f)
+                                    break
+                    existing_codec = old_task.codec or ""
+                    existing_channel = old_task.channel_name or ""
+                    existing_video_id = old_task.video_id or ""
+
+            # 方式2：DownloadHistory 匹配
+            if not existing_file:
+                history_result = await db.execute(
+                    select(DownloadHistory).where(DownloadHistory.video_url == ep.video_url)
+                )
+                existing_hist = history_result.scalar()
+                if existing_hist and existing_hist.file_path:
+                    if os.path.exists(existing_hist.file_path):
+                        existing_file = existing_hist.file_path
+                    else:
+                        hist_dir = os.path.dirname(existing_hist.file_path)
+                        if os.path.isdir(hist_dir):
+                            for f in os.listdir(hist_dir):
+                                if f.endswith(('.mp4', '.webm', '.mkv')):
+                                    existing_file = os.path.join(hist_dir, f)
+                                    break
+                    existing_codec = existing_hist.codec or existing_codec
+                    existing_channel = existing_hist.channel_name or existing_channel
+                    existing_video_id = existing_hist.video_id or existing_video_id
+
+            if existing_file:
+                # ---- 已下载 → 复制文件到剧集目录 ----
+                ext = os.path.splitext(existing_file)[1] or ".mp4"
                 year = ""
                 paths = build_tvshow_path(
                     settings.download_dir, category, s.title, year,
                     season=s.season, episode=ep.episode_number,
                     episode_title=ep.title,
-                    codec=existing.codec or "",
-                    ext=ext,
+                    codec=existing_codec, ext=ext,
                 )
                 ensure_dirs(paths)
 
-                # 移动视频文件
-                shutil.move(existing.file_path, paths["video"])
+                # 复制视频文件（保留原始单品）
+                import shutil
+                shutil.copy2(existing_file, paths["video"])
 
-                # 移动同目录的相关文件（nfo, 字幕, 缩略图等）
-                src_dir = os.path.dirname(existing.file_path)
-                src_base = os.path.splitext(os.path.basename(existing.file_path))[0]
+                # 复制同目录的相关文件（字幕、缩略图）
+                src_dir = os.path.dirname(existing_file)
+                src_base = os.path.splitext(os.path.basename(existing_file))[0]
                 for f in os.listdir(src_dir):
-                    if f.startswith(src_base) and f != os.path.basename(existing.file_path):
-                        shutil.move(os.path.join(src_dir, f), os.path.join(paths["season_dir"], f))
+                    if f.startswith(src_base) and f != os.path.basename(existing_file):
+                        dest = os.path.join(paths["season_dir"], f)
+                        if not os.path.exists(dest):
+                            shutil.copy2(os.path.join(src_dir, f), dest)
 
-                # 移动封面
+                # 复制封面
                 for poster_name in ["poster.jpg", "poster.webp", "poster.png"]:
                     poster_src = os.path.join(src_dir, poster_name)
-                    if os.path.exists(poster_src):
-                        shutil.move(poster_src, os.path.join(paths["season_dir"], poster_name))
-
-                # 清理空的源目录
-                try:
-                    if not os.listdir(src_dir):
-                        os.rmdir(src_dir)
-                except Exception:
-                    pass
+                    poster_dest = os.path.join(paths["season_dir"], poster_name)
+                    if os.path.exists(poster_src) and not os.path.exists(poster_dest):
+                        shutil.copy2(poster_src, poster_dest)
 
                 # 生成 episode.nfo（带角色信息）
                 ep_nfo = generate_episode_nfo(
@@ -365,21 +402,19 @@ async def download_series(series_id: int, db: AsyncSession = Depends(get_db)):
                     season=s.season,
                     episode=ep.episode_number,
                     plot="",
-                    director=existing.channel_name or "",
+                    director=existing_channel,
                     video_url=ep.video_url,
-                    video_id=existing.video_id or "",
+                    video_id=existing_video_id,
                     platform=s.platform.value,
-                    thumb_filename=os.path.basename(paths["thumb"]) if os.path.exists(paths.get("thumb", "")) else "",
+                    thumb_filename=os.path.basename(paths.get("thumb", "")),
                     duration_seconds=ep.duration,
                 )
                 save_nfo(ep_nfo, paths["nfo"])
 
-                # 更新历史记录的文件路径
-                existing.file_path = paths["video"]
                 ep.status = TaskStatus.COMPLETED
                 moved += 1
             else:
-                # 未下载 → 创建下载任务（标记为剧集集数）
+                # ---- 未下载 → 创建下载任务 ----
                 task = DownloadTask(
                     platform=s.platform,
                     video_url=ep.video_url,
