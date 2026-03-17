@@ -1,15 +1,20 @@
 # yt-dlp Web - 群晖部署配置
 # 复用已有 PostgreSQL(5444) + Redis(redis_default)
+# 使用本地 registry(15000) 拉取镜像
 #
 # 部署步骤：
-# 1. 先在 PostgreSQL 中创建数据库（见下方说明）
-# 2. 将此文件放到 /volume2/docker/ytdlp-web/docker-compose.yml
+# 1. 先在 PostgreSQL 中创建数据库:
+#    docker exec -it moviepilot-postgresql psql -U Muyz -d moviepilot -c "CREATE DATABASE ytdlp_web;"
+# 2. 首次同步镜像到本地 registry:
+#    docker pull ghcr.io/pigeonmuyz/yt-dlp-web:latest
+#    docker tag ghcr.io/pigeonmuyz/yt-dlp-web:latest 192.168.31.190:15000/ytdlp-web:latest
+#    docker push 192.168.31.190:15000/ytdlp-web:latest
 # 3. docker compose up -d
 # 4. 访问 http://群晖IP:8686
 
 services:
   app:
-    image: ghcr.io/pigeonmuyz/yt-dlp-web:latest
+    image: 192.168.31.190:15000/ytdlp-web:latest
     container_name: ytdlp-web
     ports:
       - "8686:8686"
@@ -44,7 +49,32 @@ services:
       - default
       - redis_default
 
-  # 自动更新 - 每 6 小时检查新版镜像
+  # 镜像同步：每 6 小时从 ghcr.io 拉取最新镜像 → 推到本地 registry
+  mirror-sync:
+    image: docker:cli
+    container_name: ytdlp-mirror-sync
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        while true; do
+          echo "[$(date)] 检查 ghcr.io 镜像更新..."
+          docker pull ghcr.io/pigeonmuyz/yt-dlp-web:latest && \
+          docker tag ghcr.io/pigeonmuyz/yt-dlp-web:latest 192.168.31.190:15000/ytdlp-web:latest && \
+          docker push 192.168.31.190:15000/ytdlp-web:latest && \
+          echo "[$(date)] 同步完成"
+          sleep 21600
+        done
+    environment:
+      # 拉取 ghcr.io 需要代理时取消注释
+      # - HTTP_PROXY=http://代理地址:端口
+      # - HTTPS_PROXY=http://代理地址:端口
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+
+  # 自动更新：监控本地 registry 镜像变化，自动重启 app 容器
   watchtower:
     image: containrrr/watchtower
     container_name: ytdlp-watchtower
@@ -54,9 +84,6 @@ services:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_POLL_INTERVAL=21600
       - WATCHTOWER_SCOPE=ytdlp
-      # 代理（如果拉取 ghcr.io 需要代理，取消注释）
-      # - HTTP_PROXY=http://代理地址:端口
-      # - HTTPS_PROXY=http://代理地址:端口
     labels:
       - "com.centurylinklabs.watchtower.scope=ytdlp"
     restart: unless-stopped
