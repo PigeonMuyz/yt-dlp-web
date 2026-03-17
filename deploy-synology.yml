@@ -1,0 +1,66 @@
+# yt-dlp Web - 群晖部署配置
+# 复用已有 PostgreSQL(5444) + Redis(redis_default)
+#
+# 部署步骤：
+# 1. 先在 PostgreSQL 中创建数据库（见下方说明）
+# 2. 将此文件放到 /volume2/docker/ytdlp-web/docker-compose.yml
+# 3. docker compose up -d
+# 4. 访问 http://群晖IP:8686
+
+services:
+  app:
+    image: ghcr.io/pigeonmuyz/yt-dlp-web:latest
+    container_name: ytdlp-web
+    ports:
+      - "8686:8686"
+    volumes:
+      # 配置数据
+      - /volume2/docker/ytdlp-web/data:/data
+      # 下载目录 → 直接写入 emby 媒体库
+      - /volume2/娱乐区/local/emby:/media
+    environment:
+      # ===== 数据库 - 复用已有 PostgreSQL =====
+      - YTDLP_DB_HOST=192.168.31.190
+      - YTDLP_DB_PORT=5444
+      - YTDLP_DB_NAME=ytdlp_web
+      - YTDLP_DB_USER=Muyz
+      - YTDLP_DB_PASSWORD=Htc0319.
+      # ===== Redis - 复用已有 Redis =====
+      - YTDLP_REDIS_HOST=redis-server
+      - YTDLP_REDIS_PORT=6379
+      - YTDLP_REDIS_DB=1
+      # ===== 基础配置 =====
+      - YTDLP_ADMIN_PASSWORD=admin123
+      - TZ=Asia/Shanghai
+      # ===== 代理（访问 YouTube 需要）=====
+      # - YTDLP_PROXY=http://代理地址:端口
+      # ===== Emby 自动刷新（可选）=====
+      # - YTDLP_EMBY_URL=http://192.168.31.190:8096
+      # - YTDLP_EMBY_API_KEY=你的Emby-API-KEY
+    labels:
+      - "com.centurylinklabs.watchtower.scope=ytdlp"
+    restart: unless-stopped
+    networks:
+      - default
+      - redis_default
+
+  # 自动更新 - 每 6 小时检查新版镜像
+  watchtower:
+    image: containrrr/watchtower
+    container_name: ytdlp-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=21600
+      - WATCHTOWER_SCOPE=ytdlp
+      # 代理（如果拉取 ghcr.io 需要代理，取消注释）
+      # - HTTP_PROXY=http://代理地址:端口
+      # - HTTPS_PROXY=http://代理地址:端口
+    labels:
+      - "com.centurylinklabs.watchtower.scope=ytdlp"
+    restart: unless-stopped
+
+networks:
+  redis_default:
+    external: true
