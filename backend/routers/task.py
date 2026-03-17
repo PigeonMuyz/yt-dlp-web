@@ -159,14 +159,36 @@ async def delete_task(task_id: int, db: AsyncSession = Depends(get_db)):
 async def download_history(
     limit: int = 50,
     offset: int = 0,
+    keyword: str = "",
+    channel: str = "",
+    date_from: str = "",
+    date_to: str = "",
     db: AsyncSession = Depends(get_db),
 ):
-    """下载历史"""
-    result = await db.execute(
-        select(DownloadHistory)
-        .order_by(desc(DownloadHistory.downloaded_at))
-        .limit(limit).offset(offset)
-    )
+    """下载历史 — 支持关键字/频道/日期搜索"""
+    query = select(DownloadHistory).order_by(desc(DownloadHistory.downloaded_at))
+
+    if keyword:
+        query = query.where(DownloadHistory.title.ilike(f"%{keyword}%"))
+    if channel:
+        query = query.where(DownloadHistory.channel_name.ilike(f"%{channel}%"))
+    if date_from:
+        from datetime import datetime
+        try:
+            dt = datetime.fromisoformat(date_from)
+            query = query.where(DownloadHistory.downloaded_at >= dt)
+        except ValueError:
+            pass
+    if date_to:
+        from datetime import datetime, timedelta
+        try:
+            dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+            query = query.where(DownloadHistory.downloaded_at < dt)
+        except ValueError:
+            pass
+
+    query = query.limit(limit).offset(offset)
+    result = await db.execute(query)
     items = result.scalars().all()
     return [
         {

@@ -14,6 +14,19 @@ from config import settings, CONFIG_FILE
 from database import init_db, check_db_connection
 
 import redis.asyncio as redis
+import logging
+
+# 文件日志
+log_file = os.environ.get("YTDLP_LOG_FILE", "/data/ytdlp.log")
+os.makedirs(os.path.dirname(log_file), exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(log_file, encoding="utf-8"),
+    ],
+)
 
 
 # Redis 连接
@@ -352,27 +365,73 @@ async def get_task_stats():
         failed = (await db.execute(
             select(func.count()).where(DownloadTask.status == TaskStatus.FAILED)
         )).scalar() or 0
+        pending = (await db.execute(
+            select(func.count()).where(DownloadTask.status == TaskStatus.PENDING)
+        )).scalar() or 0
         subs = (await db.execute(
             select(func.count()).select_from(Subscription)
         )).scalar() or 0
+
+        # 今日下载量
+        from datetime import datetime, timedelta
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_count = (await db.execute(
+            select(func.count()).where(
+                DownloadTask.status == TaskStatus.COMPLETED,
+                DownloadTask.completed_at >= today_start,
+            )
+        )).scalar() or 0
+
+        # 7天趋势
+        trend = []
+        for i in range(6, -1, -1):
+            day = today_start - timedelta(days=i)
+            next_day = day + timedelta(days=1)
+            count = (await db.execute(
+                select(func.count()).where(
+                    DownloadTask.status == TaskStatus.COMPLETED,
+                    DownloadTask.completed_at >= day,
+                    DownloadTask.completed_at < next_day,
+                )
+            )).scalar() or 0
+            trend.append({"date": day.strftime("%m-%d"), "count": count})
+
+    # 存储占用
+    total_size = 0
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["du", "-sb", settings.download_dir],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            total_size = int(result.stdout.split()[0])
+    except Exception:
+        pass
 
     return {
         "subscriptions": subs,
         "downloading": downloading,
         "completed": completed,
         "failed": failed,
+        "pending": pending,
+        "today": today_count,
+        "storage_bytes": total_size,
+        "trend": trend,
     }
 
 
 # ==================== 注册路由 ====================
 
-from routers import auth, download, subscription, task, series
+from routers import auth, download, subscription, task, series, log, media
 
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
 app.include_router(download.router, prefix="/api/download", tags=["下载"])
 app.include_router(subscription.router, prefix="/api/subscription", tags=["订阅"])
 app.include_router(task.router, prefix="/api/task", tags=["任务"])
 app.include_router(series.router, prefix="/api/series", tags=["剧集"])
+app.include_router(log.router, prefix="/api/logs", tags=["日志"])
+app.include_router(media.router, prefix="/api/media", tags=["媒体"])
 
 
 # ==================== 静态文件 + SPA Fallback ====================

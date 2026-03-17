@@ -60,6 +60,9 @@
         <router-link to="/settings" class="nav-item" :class="{ active: $route.path === '/settings' }" @click="sidebarOpen = false">
           <n-icon size="18" class="nav-icon"><SettingsOutline /></n-icon>系统设置
         </router-link>
+        <router-link to="/logs" class="nav-item" :class="{ active: $route.path === '/logs' }" @click="sidebarOpen = false">
+          <n-icon size="18" class="nav-icon"><ReaderOutline /></n-icon>系统日志
+        </router-link>
       </div>
     </aside>
 
@@ -88,6 +91,7 @@ import {
   NotificationsOutline,
   KeyOutline,
   SettingsOutline,
+  ReaderOutline,
 } from '@vicons/ionicons5'
 
 const route = useRoute()

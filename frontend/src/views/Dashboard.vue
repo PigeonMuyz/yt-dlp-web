@@ -41,6 +41,17 @@
       </div>
 
       <div class="stat-card">
+        <div class="stat-icon orange">
+          <n-icon size="22"><TodayOutline /></n-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-label">今日下载</div>
+          <div class="stat-value">{{ stats.today }}</div>
+          <div class="stat-sub">个视频</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
         <div class="stat-icon red">
           <n-icon size="22"><CloseCircleOutline /></n-icon>
         </div>
@@ -48,6 +59,29 @@
           <div class="stat-label">失败</div>
           <div class="stat-value">{{ stats.failed }}</div>
           <div class="stat-sub">个任务</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon purple">
+          <n-icon size="22"><ServerOutline /></n-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-label">存储占用</div>
+          <div class="stat-value">{{ formatSize(stats.storage_bytes) }}</div>
+          <div class="stat-sub">{{ stats.pending || 0 }} 个等待中</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7天趋势 -->
+    <div class="card" v-if="stats.trend && stats.trend.length">
+      <div class="card-title">7 天下载趋势</div>
+      <div class="trend-chart">
+        <div v-for="d in stats.trend" :key="d.date" class="trend-bar-wrap">
+          <div class="trend-count">{{ d.count }}</div>
+          <div class="trend-bar" :style="{ height: barHeight(d.count) + 'px' }"></div>
+          <div class="trend-date">{{ d.date }}</div>
         </div>
       </div>
     </div>
@@ -128,10 +162,25 @@ import {
   InformationCircleOutline,
   KeyOutline,
   ChevronForwardOutline,
+  TodayOutline,
 } from '@vicons/ionicons5'
 
 const status = ref({ database: false, redis: false, version: '' })
-const stats = ref({ subscriptions: 0, downloading: 0, completed: 0, failed: 0 })
+const stats = ref({ subscriptions: 0, downloading: 0, completed: 0, failed: 0, today: 0, storage_bytes: 0, pending: 0, trend: [] })
+
+function formatSize(bytes) {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let val = bytes
+  while (val >= 1024 && i < units.length - 1) { val /= 1024; i++ }
+  return val.toFixed(i > 0 ? 1 : 0) + ' ' + units[i]
+}
+
+function barHeight(count) {
+  const max = Math.max(...stats.value.trend.map(d => d.count), 1)
+  return Math.max(4, (count / max) * 80)
+}
 
 onMounted(async () => {
   try {
@@ -141,15 +190,56 @@ onMounted(async () => {
     ])
     status.value = statusRes.data
     if (taskRes.data) {
-      stats.value = {
-        subscriptions: taskRes.data.subscriptions || 0,
-        downloading: taskRes.data.downloading || 0,
-        completed: taskRes.data.completed || 0,
-        failed: taskRes.data.failed || 0,
-      }
+      stats.value = { ...stats.value, ...taskRes.data }
     }
   } catch (e) {
     console.error(e)
   }
 })
 </script>
+
+<style scoped>
+.trend-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  height: 120px;
+  padding: 8px 0;
+}
+.trend-bar-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.trend-bar {
+  width: 100%;
+  max-width: 48px;
+  background: linear-gradient(180deg, var(--accent-color), var(--accent-hover));
+  border-radius: 4px 4px 0 0;
+  min-height: 4px;
+  transition: height 0.3s ease;
+}
+.trend-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.trend-date {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.stat-icon.purple {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+}
+.stat-icon.orange {
+  background: rgba(249, 115, 22, 0.15);
+  color: #f97316;
+}
+@media (max-width: 480px) {
+  .trend-chart { gap: 4px; }
+  .trend-bar { max-width: 32px; }
+}
+</style>
