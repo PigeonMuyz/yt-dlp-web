@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     # 下载限速
     rate_limit: int = 0  # KB/s, 0=不限
 
+    # 定时下载
+    download_schedule: str = ""  # 如 "02:00-06:00"，空=不限制
+
     class Config:
         env_prefix = "YTDLP_"
         env_file = ".env"

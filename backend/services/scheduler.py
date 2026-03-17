@@ -52,6 +52,26 @@ async def process_download_queue():
     import json, os
     from datetime import datetime
 
+    # 定时下载检查
+    schedule = settings.download_schedule.strip()
+    if schedule and "-" in schedule:
+        try:
+            start_str, end_str = schedule.split("-")
+            now = datetime.now()
+            start_h, start_m = map(int, start_str.strip().split(":"))
+            end_h, end_m = map(int, end_str.strip().split(":"))
+            start_min = start_h * 60 + start_m
+            end_min = end_h * 60 + end_m
+            now_min = now.hour * 60 + now.minute
+            if start_min <= end_min:
+                if not (start_min <= now_min < end_min):
+                    return  # 不在下载时段
+            else:  # 跨午夜，如 22:00-06:00
+                if end_min <= now_min < start_min:
+                    return  # 不在下载时段
+        except Exception:
+            pass
+
     r = aioredis.from_url(settings.redis_dsn, decode_responses=True)
 
     try:

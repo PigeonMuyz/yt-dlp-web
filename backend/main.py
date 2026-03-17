@@ -318,6 +318,7 @@ async def get_settings():
         "notify_token": settings.notify_token,
         "notify_webhook_url": settings.notify_webhook_url,
         "rate_limit": settings.rate_limit,
+        "download_schedule": settings.download_schedule,
         "env_proxy": os.environ.get("YTDLP_PROXY", ""),
         "version": _get_current_version(),
     }
@@ -330,7 +331,7 @@ async def update_settings(request: Request):
 
     for key in ["download_dir", "proxy", "emby_url", "emby_api_key", "tmdb_api_key", "default_resolution",
                 "dir_videos", "dir_series", "dir_collections", "dev_mode", "dev_max_items", "github_repo",
-                "notify_type", "notify_token", "notify_webhook_url", "rate_limit"]:
+                "notify_type", "notify_token", "notify_webhook_url", "rate_limit", "download_schedule"]:
         if key in data:
             setattr(settings, key, data[key])
 
@@ -419,6 +420,177 @@ async def get_task_stats():
         "storage_bytes": total_size,
         "trend": trend,
     }
+
+
+# ==================== 备份 / 恢复 ====================
+
+@app.get("/api/backup", tags=["系统"])
+async def backup_config():
+    """导出配置和订阅数据"""
+    from database import async_session
+    from models import Subscription
+    from sqlalchemy import select
+
+    data = {
+        "version": _get_current_version(),
+        "settings": {
+            "proxy": settings.proxy,
+            "download_dir": settings.download_dir,
+            "default_resolution": settings.default_resolution,
+            "dir_videos": settings.dir_videos,
+            "dir_series": settings.dir_series,
+            "dir_collections": settings.dir_collections,
+            "emby_url": settings.emby_url,
+            "emby_api_key": settings.emby_api_key,
+            "tmdb_api_key": settings.tmdb_api_key,
+            "github_repo": settings.github_repo,
+            "notify_type": settings.notify_type,
+            "notify_token": settings.notify_token,
+            "notify_webhook_url": settings.notify_webhook_url,
+            "rate_limit": settings.rate_limit,
+            "download_schedule": settings.download_schedule,
+        },
+        "subscriptions": [],
+    }
+
+    async with async_session() as db:
+        result = await db.execute(select(Subscription))
+        for s in result.scalars().all():
+            data["subscriptions"].append({
+                "platform": s.platform.value,
+                "sub_type": s.sub_type.value,
+                "url": s.url,
+                "name": s.name,
+                "codec_strategy": s.codec_strategy.value,
+                "preferred_codec": s.preferred_codec,
+                "max_resolution": s.max_resolution,
+                "subtitle_langs": s.subtitle_langs,
+                "org_mode": s.org_mode.value,
+                "check_interval": s.check_interval,
+                "enabled": s.enabled,
+            })
+
+    return data
+
+
+@app.post("/api/restore", tags=["系统"])
+async def restore_config(request: Request):
+    """恢复配置和订阅数据"""
+    data = await request.json()
+
+    # 恢复设置
+    if "settings" in data:
+        for key, val in data["settings"].items():
+            if hasattr(settings, key):
+                setattr(settings, key, val)
+        settings.save_to_file()
+
+    # 恢复订阅
+    if "subscriptions" in data:
+        from database import async_session
+        from models import Subscription, Platform, SubType, CodecStrategy, OrgMode
+        from sqlalchemy import select
+
+        async with async_session() as db:
+            for sub_data in data["subscriptions"]:
+                # 检查是否已存在
+                existing = await db.execute(
+                    select(Subscription).where(Subscription.url == sub_data["url"])
+                )
+                if existing.scalar():
+                    continue
+
+                sub = Subscription(
+                    platform=Platform(sub_data["platform"]),
+                    sub_type=SubType(sub_data["sub_type"]),
+                    url=sub_data["url"],
+                    name=sub_data.get("name", ""),
+                    codec_strategy=CodecStrategy(sub_data.get("codec_strategy", "dual")),
+                    preferred_codec=sub_data.get("preferred_codec", ""),
+                    max_resolution=sub_data.get("max_resolution", ""),
+                    subtitle_langs=sub_data.get("subtitle_langs", "zh-Hans,en,ja"),
+                    org_mode=OrgMode(sub_data.get("org_mode", "by_year")),
+                    check_interval=sub_data.get("check_interval", 3600),
+                    enabled=sub_data.get("enabled", True),
+                )
+                db.add(sub)
+            await db.commit()
+
+    return {"success": True, "message": f"已恢复配置和 {len(data.get('subscriptions', []))} 个订阅"}
+
+
+# ==================== 存储管理 ====================
+
+@app.get("/api/storage", tags=["系统"])
+async def storage_info():
+    """获取存储详情"""
+    import subprocess
+
+    result_data = {"total": 0, "dirs": []}
+
+    try:
+        # 总占用
+        result = subprocess.run(
+            ["du", "-sb", settings.download_dir],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            result_data["total"] = int(result.stdout.split()[0])
+
+        # 子目录占用
+        result = subprocess.run(
+            ["du", "-sb", "--max-depth=1", settings.download_dir],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                parts = line.split("\t", 1)
+                if len(parts) == 2 and parts[1] != settings.download_dir:
+                    result_data["dirs"].append({
+                        "path": os.path.basename(parts[1]),
+                        "size": int(parts[0]),
+                    })
+            result_data["dirs"].sort(key=lambda x: x["size"], reverse=True)
+    except Exception:
+        pass
+
+    # 磁盘信息
+    try:
+        import shutil
+        usage = shutil.disk_usage(settings.download_dir)
+        result_data["disk_total"] = usage.total
+        result_data["disk_used"] = usage.used
+        result_data["disk_free"] = usage.free
+    except Exception:
+        pass
+
+    return result_data
+
+
+@app.post("/api/storage/cleanup", tags=["系统"])
+async def cleanup_storage():
+    """清理缩略图缓存和临时文件"""
+    import shutil
+
+    cleaned = 0
+    # 清理缩略图缓存
+    thumbs_dir = os.path.join(settings.download_dir, ".thumbs")
+    if os.path.exists(thumbs_dir):
+        count = len(os.listdir(thumbs_dir))
+        shutil.rmtree(thumbs_dir, ignore_errors=True)
+        cleaned += count
+
+    # 清理 .part 临时文件
+    for root, dirs, files in os.walk(settings.download_dir):
+        for f in files:
+            if f.endswith(".part") or f.endswith(".ytdl"):
+                try:
+                    os.remove(os.path.join(root, f))
+                    cleaned += 1
+                except Exception:
+                    pass
+
+    return {"success": True, "message": f"已清理 {cleaned} 个临时文件"}
 
 
 # ==================== 注册路由 ====================

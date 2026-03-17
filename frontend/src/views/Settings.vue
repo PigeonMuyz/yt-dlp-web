@@ -160,6 +160,35 @@
       </div>
     </div>
 
+    <!-- 定时下载 -->
+    <div class="card">
+      <div class="card-title">
+        <n-icon size="16" style="margin-right: 6px; vertical-align: -2px;"><TimeOutline /></n-icon>
+        定时下载
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; font-size: 13px;">
+        <n-input v-model:value="downloadSchedule" placeholder="02:00-06:00（留空=不限制）" size="small" style="max-width: 200px;" />
+        <span style="color: var(--text-secondary);">仅在此时间段内下载</span>
+        <n-button type="primary" size="small" @click="saveSchedule">保存</n-button>
+      </div>
+      <p style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">支持跨午夜，如 22:00-06:00</p>
+    </div>
+
+    <!-- 数据备份 -->
+    <div class="card">
+      <div class="card-title">
+        <n-icon size="16" style="margin-right: 6px; vertical-align: -2px;"><CloudDownloadOutline /></n-icon>
+        数据备份
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <n-button size="small" @click="backupData">导出配置</n-button>
+        <n-upload :show-file-list="false" accept=".json" @change="handleRestore">
+          <n-button size="small">导入配置</n-button>
+        </n-upload>
+      </div>
+      <p style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">包含所有设置和订阅列表</p>
+    </div>
+
     <!-- 系统信息 & 更新 -->
     <div class="card">
       <div class="card-title">
@@ -202,6 +231,8 @@ import {
   CodeOutline,
   NotificationsOutline,
   SpeedometerOutline,
+  TimeOutline,
+  CloudDownloadOutline,
 } from '@vicons/ionicons5'
 
 const message = useMessage()
@@ -237,6 +268,8 @@ const notifyOptions = [
 ]
 // 限速
 const rateLimit = ref(0)
+// 定时下载
+const downloadSchedule = ref('')
 
 const resolutionOptions = [
   { label: '最佳画质', value: 'best' },
@@ -268,6 +301,7 @@ onMounted(async () => {
       notifyToken.value = res.data.notify_token || ''
       notifyWebhookUrl.value = res.data.notify_webhook_url || ''
       rateLimit.value = res.data.rate_limit || 0
+      downloadSchedule.value = res.data.download_schedule || ''
     }
   } catch (e) { console.error(e) }
 })
@@ -380,5 +414,36 @@ async function saveRateLimit() {
     await axios.post('/api/settings', { rate_limit: rateLimit.value })
     message.success(`限速设置已保存${rateLimit.value > 0 ? ': ' + rateLimit.value + ' KB/s' : ': 不限速'}`)
   } catch (e) { message.error('保存失败') }
+}
+
+async function saveSchedule() {
+  try {
+    await axios.post('/api/settings', { download_schedule: downloadSchedule.value })
+    message.success(downloadSchedule.value ? `定时下载已设置: ${downloadSchedule.value}` : '定时下载已关闭')
+  } catch (e) { message.error('保存失败') }
+}
+
+async function backupData() {
+  try {
+    const res = await axios.get('/api/backup')
+    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `ytdlp-backup-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    message.success('配置已导出')
+  } catch (e) { message.error('导出失败') }
+}
+
+async function handleRestore({ file }) {
+  try {
+    const text = await file.file.text()
+    const data = JSON.parse(text)
+    await axios.post('/api/restore', data)
+    message.success('配置已恢复，刷新页面查看')
+    setTimeout(() => location.reload(), 1000)
+  } catch (e) { message.error('恢复失败: ' + (e.message || '')) }
 }
 </script>
