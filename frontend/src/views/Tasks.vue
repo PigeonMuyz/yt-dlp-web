@@ -10,10 +10,15 @@
       <n-tabs v-model:value="activeTab" type="line" @update:value="onTabChange">
         <n-tab-pane name="tasks" tab="进行中">
           <!-- 状态筛选 -->
-          <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+          <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
             <n-button v-for="f in taskFilters" :key="f.value" :type="filter===f.value?'primary':'default'" size="small" @click="filter=f.value;loadTasks()">
               <template #icon><n-icon :component="f.icon" size="14" /></template>
               {{ f.label }}
+            </n-button>
+            <n-divider vertical />
+            <n-button size="small" type="warning" :loading="retryingAll" @click="retryAllFailed">
+              <template #icon><n-icon size="14"><RefreshOutline /></n-icon></template>
+              重试所有失败
             </n-button>
           </div>
 
@@ -144,6 +149,7 @@ const activeTab = ref('tasks')
 const currentPage = ref(1)
 const pageSize = 20
 const totalTasks = ref(0)
+const retryingAll = ref(false)
 let refreshTimer = null
 
 // 按 video_id 分组双编码任务
@@ -263,6 +269,29 @@ async function retryGroup(g) {
   }
   message.success('已重试该视频所有失败编码')
   await loadTasks()
+}
+
+async function retryAllFailed() {
+  retryingAll.value = true
+  try {
+    const failedIds = tasks.value.filter(t => t.status === 'failed').map(t => t.id)
+    if (!failedIds.length) {
+      // 需要先加载失败任务
+      const res = await axios.get('/api/task', { params: { status: 'failed', limit: 500 } })
+      const allFailed = res.data.tasks || res.data || []
+      for (const t of allFailed) {
+        failedIds.push(t.id)
+      }
+    }
+    if (!failedIds.length) {
+      message.warning('没有失败的任务')
+      return
+    }
+    await axios.post('/api/task/batch', { action: 'retry', task_ids: failedIds })
+    message.success(`已重试 ${failedIds.length} 个失败任务`)
+    await loadTasks()
+  } catch (e) { message.error('批量重试失败') }
+  finally { retryingAll.value = false }
 }
 
 async function cancel(id) {
