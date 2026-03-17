@@ -110,7 +110,9 @@ async def process_download_queue():
                 task.thumbnail = info.get("thumbnail", "")
 
                 # 自动提取编码和分辨率（如果用户未指定）
-                if not task.codec:
+                # 剧集任务不自动检测编码，直接用 best format
+                is_series_task = bool(task.series_episode_id)
+                if not task.codec and not is_series_task:
                     vcodec = info.get("vcodec", "")
                     if vcodec and vcodec != "none":
                         if "av01" in vcodec or "av1" in vcodec:
@@ -133,7 +135,6 @@ async def process_download_queue():
                 # 构建路径 —— 区分单品 vs 剧集
                 year = task.upload_date[:4] if task.upload_date else ""
                 ext = ".webm" if task.codec in ("vp9", "av1") else ".mp4"
-                is_series_task = bool(task.series_episode_id)
 
                 if is_series_task:
                     # 剧集任务：查找关联的 SeriesEpisode 和 ManualSeries
@@ -195,7 +196,7 @@ async def process_download_queue():
                     )
                 except Exception as fmt_err:
                     err_msg = str(fmt_err)
-                    if "Requested format is not available" in err_msg and format_str != "bestvideo+bestaudio/best":
+                    if format_str != "bestvideo+bestaudio/best":
                         # 指定编码不可用 → 自动回退到最佳格式
                         logger.warning(f"格式 {format_str} 不可用，回退到 best: {task.title}")
                         fallback_fmt = "bestvideo+bestaudio/best"
