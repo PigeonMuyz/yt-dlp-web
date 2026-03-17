@@ -21,6 +21,15 @@ async def list_tasks(
     db: AsyncSession = Depends(get_db),
 ):
     """获取下载任务列表"""
+    from sqlalchemy import func
+
+    # 先查总数
+    count_query = select(func.count()).select_from(DownloadTask)
+    if status:
+        count_query = count_query.where(DownloadTask.status == TaskStatus(status))
+    total = (await db.execute(count_query)).scalar() or 0
+
+    # 再查数据
     query = select(DownloadTask).order_by(desc(DownloadTask.created_at))
     if status:
         query = query.where(DownloadTask.status == TaskStatus(status))
@@ -87,7 +96,7 @@ async def list_tasks(
             "completed_at": t.completed_at.isoformat() if t.completed_at else "",
         })
 
-    return items
+    return {"tasks": items, "total": total}
 
 
 @router.get("/stats")

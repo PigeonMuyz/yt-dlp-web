@@ -242,12 +242,9 @@ async function loadTasks() {
   const offset = (currentPage.value - 1) * pageSize
   const params = { limit: pageSize, offset }
   if (filter.value) params.status = filter.value
-  const [res, statsRes] = await Promise.all([
-    axios.get('/api/task/list', { params }),
-    axios.get('/api/task/stats'),
-  ])
-  tasks.value = res.data
-  totalTasks.value = filter.value ? (statsRes.data[filter.value] || 0) : (statsRes.data.total || 0)
+  const res = await axios.get('/api/task/list', { params })
+  tasks.value = res.data.tasks || res.data || []
+  totalTasks.value = res.data.total || tasks.value.length
 }
 
 async function loadHistory() {
