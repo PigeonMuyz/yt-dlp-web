@@ -109,14 +109,16 @@ def filter_formats_by_codec(formats: list, codec: str) -> list:
 def build_format_string(codec: str, max_resolution: str = "") -> str:
     """
     构建 yt-dlp format 选择字符串
+    使用 vcodec*= 包含匹配，兜底链保证不会全部失败
     """
+    # codec 名 → yt-dlp vcodec 过滤关键字
     codec_patterns = {
-        "vp9": "vp9",
-        "av1": "av01",
-        "h264": "avc1",
-        "hevc": "hev1",
+        "vp9": "vp0?9",     # 匹配 vp9, vp09
+        "av1": "av0?1",     # 匹配 av1, av01
+        "h264": "avc",      # 匹配 avc1 等
+        "hevc": "hev|hevc", # 匹配 hev1, hevc
     }
-    vcodec_filter = codec_patterns.get(codec.lower(), codec.lower())
+    vcodec_re = codec_patterns.get(codec.lower(), codec.lower())
 
     height_limit = ""
     if max_resolution:
@@ -128,11 +130,12 @@ def build_format_string(codec: str, max_resolution: str = "") -> str:
         elif h == "720":
             height_limit = "[height<=720]"
 
-    # 带 codec 过滤的首选 + 不限 codec 但限分辨率的次选 + 最终兜底
-    primary = f"bestvideo[vcodec^={vcodec_filter}]{height_limit}+bestaudio"
-    secondary = f"bestvideo{height_limit}+bestaudio" if height_limit else ""
+    # 优先级：指定编码+限分辨率 → 指定编码不限 → 不限编码限分辨率 → 全自动
+    primary = f"bestvideo[vcodec~='{vcodec_re}']{height_limit}+bestaudio/best"
+    no_height = f"bestvideo[vcodec~='{vcodec_re}']+bestaudio/best" if height_limit else ""
+    secondary = f"bestvideo{height_limit}+bestaudio/best" if height_limit else ""
     fallback = "bestvideo+bestaudio/best"
-    parts = [p for p in [primary, secondary, fallback] if p]
+    parts = [p for p in [primary, no_height, secondary, fallback] if p]
     return "/".join(parts)
 
 

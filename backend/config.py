@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     # 定时下载
     download_schedule: str = ""  # 如 "02:00-06:00"，空=不限制
 
+    # Docker 更新 (Watchtower HTTP API)
+    watchtower_url: str = "http://ytdlp-watchtower:8080"
+    watchtower_token: str = "ytdlp-update-token"
+
     class Config:
         env_prefix = "YTDLP_"
         env_file = ".env"

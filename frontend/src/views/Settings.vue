@@ -206,9 +206,11 @@
           <n-button size="small" @click="saveGitHub">保存</n-button>
         </div>
       </div>
-      <div style="display: flex; gap: 8px; margin-top: 16px; align-items: center;">
+      <div style="display: flex; gap: 8px; margin-top: 16px; align-items: center; flex-wrap: wrap;">
         <n-button size="small" :loading="checkingUpdate" @click="checkUpdate">检查更新</n-button>
         <n-button v-if="updateInfo.has_update" type="primary" size="small" :loading="updating" @click="doUpdate">🚀 一键更新到 v{{ updateInfo.latest }}</n-button>
+        <n-divider vertical />
+        <n-button type="warning" size="small" :loading="dockerUpdating" @click="dockerUpdate">🐳 Docker 拉取最新镜像</n-button>
         <span v-if="updateInfo.message" style="font-size: 13px; color: var(--text-secondary);">{{ updateInfo.message }}</span>
       </div>
     </div>
@@ -255,6 +257,7 @@ const githubRepo = ref('')
 const checkingUpdate = ref(false)
 const updating = ref(false)
 const updateInfo = ref({ has_update: false, message: '' })
+const dockerUpdating = ref(false)
 // 通知推送
 const notifyType = ref('')
 const notifyToken = ref('')
@@ -387,6 +390,19 @@ async function doUpdate() {
     message.success(res.data.message)
   } catch (e) { message.error('更新失败') }
   finally { updating.value = false }
+}
+
+async function dockerUpdate() {
+  dockerUpdating.value = true
+  try {
+    const res = await axios.post('/api/docker-update')
+    if (res.data.success) {
+      message.success(res.data.message)
+    } else {
+      message.error(res.data.message)
+    }
+  } catch (e) { message.error('触发更新失败') }
+  finally { dockerUpdating.value = false }
 }
 
 async function saveNotify() {

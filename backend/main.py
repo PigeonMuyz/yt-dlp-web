@@ -296,6 +296,30 @@ async def trigger_update():
     return {"success": True, "message": "更新已触发，容器将在约 30 秒后重建"}
 
 
+@app.post("/api/docker-update", tags=["系统"])
+async def docker_update():
+    """Docker 环境下触发 Watchtower 立即更新镜像"""
+    import httpx
+
+    watchtower_url = settings.watchtower_url.rstrip("/")
+    token = settings.watchtower_token
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"{watchtower_url}/v1/update",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp.status_code == 200:
+                return {"success": True, "message": "已通知 Watchtower 检查并更新镜像，容器将在 1-2 分钟内重启"}
+            else:
+                return {"success": False, "message": f"Watchtower 返回 {resp.status_code}: {resp.text[:200]}"}
+    except httpx.ConnectError:
+        return {"success": False, "message": "无法连接 Watchtower，请检查 watchtower 容器是否运行中"}
+    except Exception as e:
+        return {"success": False, "message": f"触发更新失败: {str(e)[:200]}"}
+
+
 # ==================== 设置 API ====================
 
 @app.get("/api/settings")

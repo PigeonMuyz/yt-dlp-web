@@ -84,6 +84,12 @@ services:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_POLL_INTERVAL=21600
       - WATCHTOWER_SCOPE=ytdlp
+      # HTTP API — 供 web 面板触发手动更新
+      - WATCHTOWER_HTTP_API_UPDATE=true
+      - WATCHTOWER_HTTP_API_TOKEN=ytdlp-update-token
+      - WATCHTOWER_HTTP_API_PERIODIC_POLLS=true
+    ports:
+      - "8787:8080"
     labels:
       - "com.centurylinklabs.watchtower.scope=ytdlp"
     restart: unless-stopped
