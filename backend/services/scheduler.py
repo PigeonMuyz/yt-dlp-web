@@ -323,6 +323,13 @@ async def process_download_queue():
                     json.dumps({"status": "completed", "progress": "100%", "title": task.title}),
                     ex=300,
                 )
+                # 推送通知
+                try:
+                    from services.notifier import notify_download_complete
+                    size_mb = (os.path.getsize(paths["video"]) / 1048576) if os.path.exists(paths["video"]) else 0
+                    await notify_download_complete(task.title, task.codec, size_mb)
+                except Exception:
+                    pass
 
             except Exception as e:
                 task.status = TaskStatus.FAILED
@@ -333,6 +340,12 @@ async def process_download_queue():
                     json.dumps({"status": "failed", "error": str(e)[:500]}),
                     ex=300,
                 )
+                # 推送通知
+                try:
+                    from services.notifier import notify_download_failed
+                    await notify_download_failed(task.title, str(e)[:200])
+                except Exception:
+                    pass
     finally:
         await r.close()
 

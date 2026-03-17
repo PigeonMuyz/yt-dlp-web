@@ -154,6 +154,11 @@ def download_video(
 
     opts = _get_base_opts(proxy, cookies_file)
 
+    # 限速
+    from config import settings as _settings
+    if _settings.rate_limit > 0:
+        opts["ratelimit"] = _settings.rate_limit * 1024  # KB/s → B/s
+
     # 输出路径
     output_dir = os.path.dirname(output_path)
     output_name = os.path.basename(output_path)

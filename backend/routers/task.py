@@ -4,9 +4,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
+from typing import List
 
 from database import get_db
 from models import DownloadTask, DownloadHistory, TaskStatus
+from schemas import BatchRequest, SuccessResponse
 
 router = APIRouter()
 
@@ -181,3 +183,32 @@ async def download_history(
         }
         for h in items
     ]
+
+
+@router.post("/batch", response_model=SuccessResponse)
+async def batch_tasks(req: BatchRequest, db: AsyncSession = Depends(get_db)):
+    """批量操作任务 — 支持 retry / delete / cancel"""
+    from main import redis_client
+
+    result = await db.execute(
+        select(DownloadTask).where(DownloadTask.id.in_(req.ids))
+    )
+    tasks = result.scalars().all()
+
+    count = 0
+    for task in tasks:
+        if req.action == "retry" and task.status == TaskStatus.FAILED:
+            task.status = TaskStatus.PENDING
+            task.progress = 0
+            task.error_msg = ""
+            await redis_client.rpush("download_queue", str(task.id))
+            count += 1
+        elif req.action == "delete":
+            await db.delete(task)
+            count += 1
+        elif req.action == "cancel" and task.status == TaskStatus.PENDING:
+            task.status = TaskStatus.CANCELLED
+            count += 1
+
+    await db.commit()
+    return SuccessResponse(message=f"已处理 {count} 个任务")

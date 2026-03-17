@@ -125,6 +125,41 @@
       <n-button size="small" style="margin-left: 8px;" @click="checkAllSubs" :loading="checkingAll">立即检查所有订阅</n-button>
     </div>
 
+    <!-- 通知推送 -->
+    <div class="card">
+      <div class="card-title">
+        <n-icon size="16" style="margin-right: 6px; vertical-align: -2px;"><NotificationsOutline /></n-icon>
+        通知推送
+      </div>
+      <div style="display: grid; grid-template-columns: 120px 1fr; gap: 8px 12px; align-items: center; font-size: 13px;">
+        <div style="color: var(--text-secondary);">推送方式</div>
+        <n-select v-model:value="notifyType" :options="notifyOptions" size="small" style="max-width: 200px;" />
+        <template v-if="notifyType">
+          <div style="color: var(--text-secondary);">Token / Key</div>
+          <n-input v-model:value="notifyToken" :placeholder="notifyType === 'telegram' ? 'bot_token@chat_id' : 'Key'" size="small" style="max-width: 360px;" />
+          <div style="color: var(--text-secondary);">{{ notifyType === 'webhook' ? 'Webhook URL' : notifyType === 'bark' ? 'Bark 服务器' : 'Chat ID' }}</div>
+          <n-input v-model:value="notifyWebhookUrl" :placeholder="notifyType === 'telegram' ? '可用 token@chatid 格式' : 'https://...'" size="small" style="max-width: 360px;" />
+        </template>
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 12px;">
+        <n-button type="primary" size="small" @click="saveNotify">保存</n-button>
+        <n-button size="small" @click="testNotify" :loading="testingNotify">发送测试</n-button>
+      </div>
+    </div>
+
+    <!-- 限速 -->
+    <div class="card">
+      <div class="card-title">
+        <n-icon size="16" style="margin-right: 6px; vertical-align: -2px;"><SpeedometerOutline /></n-icon>
+        下载限速
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; font-size: 13px;">
+        <n-input-number v-model:value="rateLimit" :min="0" :step="100" style="width: 160px;" size="small" />
+        <span style="color: var(--text-secondary);">KB/s（0 = 不限速）</span>
+        <n-button type="primary" size="small" @click="saveRateLimit">保存</n-button>
+      </div>
+    </div>
+
     <!-- 系统信息 & 更新 -->
     <div class="card">
       <div class="card-title">
@@ -165,6 +200,8 @@ import {
   InformationCircleOutline,
   SearchOutline,
   CodeOutline,
+  NotificationsOutline,
+  SpeedometerOutline,
 } from '@vicons/ionicons5'
 
 const message = useMessage()
@@ -187,6 +224,19 @@ const githubRepo = ref('')
 const checkingUpdate = ref(false)
 const updating = ref(false)
 const updateInfo = ref({ has_update: false, message: '' })
+// 通知推送
+const notifyType = ref('')
+const notifyToken = ref('')
+const notifyWebhookUrl = ref('')
+const testingNotify = ref(false)
+const notifyOptions = [
+  { label: '关闭', value: '' },
+  { label: 'Telegram', value: 'telegram' },
+  { label: 'Bark (iOS)', value: 'bark' },
+  { label: 'Webhook', value: 'webhook' },
+]
+// 限速
+const rateLimit = ref(0)
 
 const resolutionOptions = [
   { label: '最佳画质', value: 'best' },
@@ -214,6 +264,10 @@ onMounted(async () => {
       envProxy.value = res.data.env_proxy || ''
       version.value = res.data.version || '1.0.0'
       githubRepo.value = res.data.github_repo || ''
+      notifyType.value = res.data.notify_type || ''
+      notifyToken.value = res.data.notify_token || ''
+      notifyWebhookUrl.value = res.data.notify_webhook_url || ''
+      rateLimit.value = res.data.rate_limit || 0
     }
   } catch (e) { console.error(e) }
 })
@@ -299,5 +353,32 @@ async function doUpdate() {
     message.success(res.data.message)
   } catch (e) { message.error('更新失败') }
   finally { updating.value = false }
+}
+
+async function saveNotify() {
+  try {
+    await axios.post('/api/settings', {
+      notify_type: notifyType.value,
+      notify_token: notifyToken.value,
+      notify_webhook_url: notifyWebhookUrl.value,
+    })
+    message.success('通知设置已保存')
+  } catch (e) { message.error('保存失败') }
+}
+
+async function testNotify() {
+  testingNotify.value = true
+  try {
+    const res = await axios.post('/api/notify/test')
+    message.success(res.data.message)
+  } catch (e) { message.error('测试失败') }
+  finally { testingNotify.value = false }
+}
+
+async function saveRateLimit() {
+  try {
+    await axios.post('/api/settings', { rate_limit: rateLimit.value })
+    message.success(`限速设置已保存${rateLimit.value > 0 ? ': ' + rateLimit.value + ' KB/s' : ': 不限速'}`)
+  } catch (e) { message.error('保存失败') }
 }
 </script>

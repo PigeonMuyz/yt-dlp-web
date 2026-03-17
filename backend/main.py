@@ -90,7 +90,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="yt-dlp Web",
+    description="视频下载管理平台 API —— 支持 YouTube / Bilibili",
     version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
     lifespan=lifespan,
 )
 
@@ -297,6 +301,10 @@ async def get_settings():
         "dev_mode": settings.dev_mode,
         "dev_max_items": settings.dev_max_items,
         "github_repo": settings.github_repo,
+        "notify_type": settings.notify_type,
+        "notify_token": settings.notify_token,
+        "notify_webhook_url": settings.notify_webhook_url,
+        "rate_limit": settings.rate_limit,
         "env_proxy": os.environ.get("YTDLP_PROXY", ""),
         "version": _get_current_version(),
     }
@@ -308,12 +316,21 @@ async def update_settings(request: Request):
     data = await request.json()
 
     for key in ["download_dir", "proxy", "emby_url", "emby_api_key", "tmdb_api_key", "default_resolution",
-                "dir_videos", "dir_series", "dir_collections", "dev_mode", "dev_max_items", "github_repo"]:
+                "dir_videos", "dir_series", "dir_collections", "dev_mode", "dev_max_items", "github_repo",
+                "notify_type", "notify_token", "notify_webhook_url", "rate_limit"]:
         if key in data:
             setattr(settings, key, data[key])
 
     settings.save_to_file()
     return {"success": True, "message": "配置已更新"}
+
+
+@app.post("/api/notify/test", tags=["系统"])
+async def test_notification():
+    """测试通知推送"""
+    from services.notifier import send_notification
+    await send_notification("🔔 测试通知", "yt-dlp Web 通知配置成功！")
+    return {"success": True, "message": "测试通知已发送"}
 
 
 # ==================== 统计 API ====================

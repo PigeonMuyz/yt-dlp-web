@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     # GitHub 更新检查
     github_repo: str = ""  # 格式: owner/repo
 
+    # 通知推送
+    notify_type: str = ""          # telegram / bark / webhook / 空=关闭
+    notify_token: str = ""         # Telegram: bot_token@chat_id / Bark: key
+    notify_webhook_url: str = ""   # Webhook URL 或 Bark 服务器地址
+
+    # 下载限速
+    rate_limit: int = 0  # KB/s, 0=不限
+
     class Config:
         env_prefix = "YTDLP_"
         env_file = ".env"
