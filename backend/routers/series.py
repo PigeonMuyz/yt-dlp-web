@@ -208,8 +208,31 @@ async def add_episode(series_id: int, req: AddEpisodeRequest, db: AsyncSession =
         duration=duration,
     )
     db.add(episode)
+    await db.flush()
+
+    # 自动创建下载任务并入队
+    task = DownloadTask(
+        platform=s.platform,
+        video_url=req.video_url,
+        title=title,
+        status=TaskStatus.PENDING,
+        series_episode_id=episode.id,
+    )
+    db.add(task)
+    await db.flush()
+    episode.download_task_id = task.id
+    episode.status = TaskStatus.PENDING
+
     await db.commit()
     await db.refresh(episode)
+
+    # 入队
+    import redis.asyncio as aioredis
+    r = aioredis.from_url(settings.redis_dsn, decode_responses=True)
+    try:
+        await r.rpush("download_queue", str(task.id))
+    finally:
+        await r.close()
 
     return {
         "id": episode.id,
@@ -217,6 +240,7 @@ async def add_episode(series_id: int, req: AddEpisodeRequest, db: AsyncSession =
         "title": episode.title,
         "thumbnail": episode.thumbnail,
         "duration": episode.duration,
+        "task_id": task.id,
     }
 
 
@@ -234,6 +258,7 @@ async def add_episodes_batch(series_id: int, req: AddEpisodesBatchRequest, db: A
     next_num = max(existing_nums) + 1 if existing_nums else 1
 
     added = []
+    task_ids = []
     for url in req.urls:
         url = url.strip()
         if not url:
@@ -245,10 +270,37 @@ async def add_episodes_batch(series_id: int, req: AddEpisodesBatchRequest, db: A
             title=f"第 {next_num} 集",
         )
         db.add(episode)
+        await db.flush()
+
+        # 自动创建下载任务
+        task = DownloadTask(
+            platform=s.platform,
+            video_url=url,
+            title=f"第 {next_num} 集",
+            status=TaskStatus.PENDING,
+            series_episode_id=episode.id,
+        )
+        db.add(task)
+        await db.flush()
+        episode.download_task_id = task.id
+        episode.status = TaskStatus.PENDING
+        task_ids.append(str(task.id))
+
         next_num += 1
         added.append({"episode_number": episode.episode_number, "video_url": url})
 
     await db.commit()
+
+    # 批量入队
+    if task_ids:
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(settings.redis_dsn, decode_responses=True)
+        try:
+            for tid in task_ids:
+                await r.rpush("download_queue", tid)
+        finally:
+            await r.close()
+
     return {"added": len(added), "episodes": added}
 
 
